@@ -36,65 +36,79 @@ function defaultState() {
 const boardRef = db.collection("kanban").doc("board");
 
 let state = { columns: [] };
+let unsubscribeBoard = null;
 
 function saveState() {
   boardRef.set(state).catch((err) => {
     console.error("Firestore write failed", err);
     alert(
-      "保存に失敗しました。Firestoreのセキュリティルールで読み書きが許可されているか確認してください。"
+      "保存に失敗しました。Firestoreのセキュリティルールでログイン済みユーザーの読み書きが許可されているか確認してください。"
     );
   });
 }
 
-boardRef.onSnapshot(
-  (snap) => {
-    if (snap.exists) {
-      const data = snap.data();
-      state = data && Array.isArray(data.columns) ? data : defaultState();
-    } else {
-      state = defaultState();
-      boardRef.set(state);
-    }
-    renderBoard();
-    syncModalIfOpen();
-  },
-  (err) => {
-    console.error("Firestore listen failed", err);
-  }
-);
-
-// ---------- user name (for comment attribution) ----------
-const NAME_KEY = "kanban-user-name";
-let currentUserName = localStorage.getItem(NAME_KEY) || "";
-
-const nameModal = document.getElementById("name-modal");
-const nameInput = document.getElementById("name-input");
-const nameSaveBtn = document.getElementById("name-save-btn");
-
-function ensureUserName() {
-  if (!currentUserName) {
-    nameModal.classList.remove("hidden");
-    nameInput.focus();
+function handleBoardSnapshot(snap) {
+  if (snap.exists) {
+    const data = snap.data();
+    state = data && Array.isArray(data.columns) ? data : defaultState();
   } else {
-    nameModal.classList.add("hidden");
+    state = defaultState();
+    boardRef.set(state);
   }
+  renderBoard();
+  syncModalIfOpen();
 }
 
-nameSaveBtn.addEventListener("click", saveName);
-nameInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") saveName();
+function handleBoardError(err) {
+  console.error("Firestore listen failed", err);
+}
+
+// ---------- Google authentication ----------
+const provider = new firebase.auth.GoogleAuthProvider();
+
+let currentUser = null;
+
+const authModal = document.getElementById("auth-modal");
+const googleLoginBtn = document.getElementById("google-login-btn");
+const userInfoEl = document.getElementById("user-info");
+const logoutBtn = document.getElementById("logout-btn");
+
+googleLoginBtn.addEventListener("click", () => {
+  auth.signInWithPopup(provider).catch((err) => {
+    console.error("Google sign-in failed", err);
+    alert("ログインに失敗しました: " + err.message);
+  });
 });
 
-function saveName() {
-  const val = nameInput.value.trim();
-  if (val) {
-    currentUserName = val;
-    localStorage.setItem(NAME_KEY, val);
-    nameModal.classList.add("hidden");
-  }
-}
+logoutBtn.addEventListener("click", () => {
+  auth.signOut();
+});
 
-ensureUserName();
+auth.onAuthStateChanged((user) => {
+  currentUser = user;
+
+  if (user) {
+    authModal.classList.add("hidden");
+    userInfoEl.textContent = "👤 " + (user.displayName || user.email || "ログイン中");
+    userInfoEl.classList.remove("hidden");
+    logoutBtn.classList.remove("hidden");
+
+    if (!unsubscribeBoard) {
+      unsubscribeBoard = boardRef.onSnapshot(handleBoardSnapshot, handleBoardError);
+    }
+  } else {
+    authModal.classList.remove("hidden");
+    userInfoEl.classList.add("hidden");
+    logoutBtn.classList.add("hidden");
+    closeCardModal();
+    board.innerHTML = "";
+
+    if (unsubscribeBoard) {
+      unsubscribeBoard();
+      unsubscribeBoard = null;
+    }
+  }
+});
 
 // ---------- board rendering ----------
 const board = document.getElementById("board");
@@ -435,16 +449,13 @@ modalCommentInput.addEventListener("keydown", (e) => {
   if (!activeCardRef) return;
   const text = modalCommentInput.value.trim();
   if (!text) return;
-  if (!currentUserName) {
-    ensureUserName();
-    return;
-  }
+  if (!currentUser) return;
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.comments = found.card.comments || [];
   found.card.comments.push({
     id: uid(),
-    author: currentUserName,
+    author: currentUser.displayName || currentUser.email || "匿名",
     text,
     createdAt: new Date().toISOString(),
   });

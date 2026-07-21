@@ -9,19 +9,20 @@
 <body>
   <header class="app-header">
     <h1>📋 Kanban Board</h1>
-    <button id="add-column-btn" class="add-column-btn">+ リストを追加</button>
+    <div class="header-right">
+      <span id="user-info" class="user-info hidden"></span>
+      <button id="logout-btn" class="logout-btn hidden">ログアウト</button>
+      <button id="add-column-btn" class="add-column-btn">+ リストを追加</button>
+    </div>
   </header>
   <main id="board" class="board"></main>
 
-  <!-- 初回にユーザー名を入力してもらうモーダル（コメントの投稿者表示に使用） -->
-  <div id="name-modal" class="modal-overlay">
-    <div class="modal-content small">
-      <h2>お名前を入力してください</h2>
-      <p class="modal-sub">コメントの投稿者として表示されます</p>
-      <input id="name-input" type="text" placeholder="例: 清水" />
-      <div class="modal-actions">
-        <button id="name-save-btn" class="confirm-add">保存</button>
-      </div>
+  <!-- Googleログインモーダル（未ログインだとボードは操作不可） -->
+  <div id="auth-modal" class="modal-overlay">
+    <div class="modal-content small auth-content">
+      <h2>ログインしてください</h2>
+      <p class="modal-sub">Googleアカウントでログインすると、ボードの閲覧・編集・コメントができます</p>
+      <button id="google-login-btn" class="google-btn">Googleでログイン</button>
     </div>
   </div>
 
@@ -71,6 +72,7 @@
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
