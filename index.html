@@ -12,6 +12,66 @@
     <button id="add-column-btn" class="add-column-btn">+ リストを追加</button>
   </header>
   <main id="board" class="board"></main>
+
+  <!-- 初回にユーザー名を入力してもらうモーダル（コメントの投稿者表示に使用） -->
+  <div id="name-modal" class="modal-overlay">
+    <div class="modal-content small">
+      <h2>お名前を入力してください</h2>
+      <p class="modal-sub">コメントの投稿者として表示されます</p>
+      <input id="name-input" type="text" placeholder="例: 清水" />
+      <div class="modal-actions">
+        <button id="name-save-btn" class="confirm-add">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- カード詳細モーダル -->
+  <div id="card-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <input id="modal-title" class="modal-title-input" />
+        <button id="modal-close-btn" class="delete-column-btn">✕</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="modal-field">
+          <label>期日</label>
+          <input type="date" id="modal-due-date" />
+        </div>
+
+        <div class="modal-field">
+          <label>重要度</label>
+          <select id="modal-priority">
+            <option value="">未設定</option>
+            <option value="low">低</option>
+            <option value="medium">中</option>
+            <option value="high">高</option>
+          </select>
+        </div>
+
+        <div class="modal-field">
+          <label>アサインメンバー</label>
+          <div id="modal-members" class="chip-list"></div>
+          <input type="text" id="modal-member-input" placeholder="名前を入力してEnter" />
+        </div>
+
+        <div class="modal-field">
+          <label>備考</label>
+          <textarea id="modal-notes" rows="3" placeholder="備考を入力..."></textarea>
+        </div>
+
+        <div class="modal-field">
+          <label>コメント</label>
+          <div id="modal-comments" class="comment-list"></div>
+          <input type="text" id="modal-comment-input" placeholder="コメントを入力してEnter" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
