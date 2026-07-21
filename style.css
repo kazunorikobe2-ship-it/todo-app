@@ -1,0 +1,189 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  background: linear-gradient(135deg, #0079bf 0%, #5067c5 100%);
+  min-height: 100vh;
+  color: #172b4d;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.app-header h1 {
+  color: #fff;
+  font-size: 20px;
+  margin: 0;
+}
+
+.add-column-btn {
+  background: rgba(255, 255, 255, 0.25);
+  border: none;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.add-column-btn:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.board {
+  display: flex;
+  gap: 16px;
+  padding: 20px 24px;
+  overflow-x: auto;
+  align-items: flex-start;
+}
+
+.column {
+  background: #ebecf0;
+  border-radius: 10px;
+  width: 272px;
+  flex: 0 0 272px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 100px);
+}
+
+.column.drag-over {
+  outline: 2px dashed #5067c5;
+}
+
+.column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 4px 6px;
+}
+
+.column-title {
+  font-weight: 600;
+  font-size: 14px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  outline: none;
+  cursor: text;
+}
+
+.delete-column-btn {
+  background: none;
+  border: none;
+  color: #6b778c;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+.delete-column-btn:hover {
+  color: #b04632;
+}
+
+.card-list {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 10px;
+  padding-bottom: 4px;
+}
+
+.card {
+  background: #fff;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 0 rgba(9, 30, 66, 0.25);
+  cursor: grab;
+  font-size: 14px;
+  line-height: 1.4;
+  word-break: break-word;
+  position: relative;
+}
+
+.card.dragging {
+  opacity: 0.4;
+}
+
+.card .card-delete {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: none;
+  background: none;
+  color: #6b778c;
+  cursor: pointer;
+  font-size: 13px;
+  display: none;
+}
+
+.card:hover .card-delete {
+  display: block;
+}
+
+.card:hover {
+  background: #f4f5f7;
+}
+
+.add-card-btn {
+  background: none;
+  border: none;
+  text-align: left;
+  color: #5e6c84;
+  padding: 8px 6px;
+  cursor: pointer;
+  font-size: 14px;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.add-card-btn:hover {
+  background: rgba(9, 30, 66, 0.08);
+}
+
+.card-input {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  resize: none;
+  box-shadow: 0 1px 0 rgba(9, 30, 66, 0.25);
+  margin-bottom: 6px;
+}
+
+.card-input-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.card-input-actions button {
+  border: none;
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.confirm-add {
+  background: #5067c5;
+  color: #fff;
+}
+
+.cancel-add {
+  background: none;
+  color: #6b778c;
+}
