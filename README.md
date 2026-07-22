@@ -15,20 +15,23 @@ Trello風のカンバンボードアプリ。プレーンなHTML/CSS/JavaScript 
   - 備考
   - コメント(投稿者名・日時つき)
 - Firestoreでリアルタイム共同編集(複数ブラウザ・複数人で同期)
-- Googleアカウントでのログイン(未ログインだとボードは閲覧・編集不可)
+- Googleアカウント、またはメールアドレス+パスワードでのログイン・新規登録(未ログインだとボードは閲覧・編集不可)。パスワードを忘れた場合の再設定メールにも対応
 - カード・コメントへのファイル添付(1ファイル5MBまで、画像は小さいサムネイル表示)
 - 削除確認モーダル + ゴミ箱(個別・一括の完全削除、復元、プロジェクト単位)
-- プロジェクトはユーザーに紐づく(オーナー / 共同編集 / 閲覧のみ)。メールアドレスでメンバーを招待可能(実際のメール送信はされず、招待されたメールアドレスのGoogleアカウントでログインするとアクセスできるようになる仕組み)
+- ログアウトも確認モーダルを経てから実行される
+- プロジェクトはユーザーに紐づく(オーナー / 共同編集 / 閲覧のみ)。メールアドレスでメンバーを招待可能(実際のメール送信はされず、招待されたメールアドレスのアカウントでログインするとアクセスできるようになる仕組み)
+- カレンダー表示は開始日〜期日の範囲を日ごとに表示(1日だけの期日にも対応)
+- ヘッダーのユーザー名をクリックするとプロフィール設定(表示名・プラン)を編集できる。プランは今後のStripe連携を見据えた項目で、現時点では選択内容の保存のみ
 
 ## セットアップ
 
 `config.js` に自分のFirebaseプロジェクトの `firebaseConfig` を設定する(すでに設定済み)。
 
-### Firebase Authentication(Googleログイン)
+### Firebase Authentication(Googleログイン + メール/パスワードログイン)
 
-Firebaseコンソール → Authentication → Sign-in method タブ → 「Google」を有効化する。
+Firebaseコンソール → Authentication → Sign-in method タブ → 「Google」と「メール/パスワード」の両方を有効化する(メール/パスワードを有効化しないと新規登録・ログイン時にエラーになる)。
 
-Authentication → Settings → 承認済みドメイン に、デプロイ先のドメイン(例: Vercelの `xxxx.vercel.app` や独自ドメイン)を追加する。これがないとログインポップアップが失敗する。
+Authentication → Settings → 承認済みドメイン に、デプロイ先のドメイン(例: Vercelの `xxxx.vercel.app` や独自ドメイン)を追加する。これがないとGoogleログインポップアップが失敗する。
 
 ### Firestore ルール
 
@@ -64,6 +67,11 @@ service cloud.firestore {
       allow delete: if request.auth != null &&
         request.auth.token.email == resource.data.ownerEmail;
     }
+
+    // プロフィール(表示名・プラン等)。本人のみ読み書き可能。
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
   }
 }
 ```
@@ -97,3 +105,7 @@ service firebase.storage {
 ## Vercelへのデプロイ
 
 ビルド設定不要の静的サイトなので、Vercelでリポジトリをインポートするだけでデプロイできる。
+
+## プロフィール・プラン(今後のStripe連携について)
+
+ヘッダーのユーザー名クリックで開くプロフィール設定に「プラン」という項目があるが、これは今後Stripeで課金機能を追加する際の下地(UIとデータ項目のみ)。現時点では選択したプラン名を `users/{uid}` ドキュメントに保存するだけで、実際の決済処理・権限制御は行っていない。Stripe連携を実装する際は、Webhookを受け取れるサーバーサイド(Cloud Functionsなど)が別途必要になる。

@@ -348,6 +348,13 @@ body {
   color: #fff;
   font-size: 13px;
   opacity: 0.9;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.user-info:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .logout-btn {
@@ -508,6 +515,106 @@ body {
 
 .google-btn:hover {
   background: #f4f5f7;
+}
+
+/* ---------- email/password auth form ---------- */
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  text-align: center;
+  color: #8993a4;
+  font-size: 12px;
+  margin: 16px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid #dcdfe4;
+}
+
+.auth-divider span {
+  padding: 0 10px;
+}
+
+.email-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.email-auth-form input {
+  padding: 9px 10px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.full-width {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-error {
+  color: #b04632;
+  font-size: 12px;
+  margin: 0;
+}
+
+.auth-toggle-row {
+  text-align: center;
+  font-size: 12px;
+  color: #6b778c;
+  margin: 4px 0 0;
+}
+
+.link-btn {
+  border: none;
+  background: none;
+  color: #5067c5;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  text-decoration: underline;
+}
+
+.link-btn.small {
+  display: block;
+  margin: 4px auto 0;
+  color: #6b778c;
+}
+
+/* ---------- profile modal ---------- */
+
+.profile-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.avatar-circle.large {
+  width: 56px;
+  height: 56px;
+  font-size: 22px;
+  border-width: 0;
+  background-size: cover;
+  background-position: center;
+}
+
+.profile-email {
+  font-size: 13px;
+  color: #6b778c;
+  word-break: break-all;
 }
 
 .board {
@@ -1300,6 +1407,23 @@ body {
 
 .calendar-card-chip:hover {
   filter: brightness(0.95);
+}
+
+.calendar-card-chip.range {
+  border-left: 3px solid #5067c5;
+  padding-left: 4px;
+}
+
+.calendar-card-chip.range-start {
+  border-radius: 4px 2px 2px 4px;
+}
+
+.calendar-card-chip.range-end {
+  border-left: none;
+  border-right: 3px solid #5067c5;
+  border-radius: 2px 4px 4px 2px;
+  padding-left: 6px;
+  padding-right: 4px;
 }
 
 /* ---------- timeline view ---------- */

@@ -406,8 +406,103 @@ googleLoginBtn.addEventListener("click", () => {
   });
 });
 
+// ---------- email/password authentication ----------
+const emailAuthEmailInput = document.getElementById("email-auth-email");
+const emailAuthPasswordInput = document.getElementById("email-auth-password");
+const emailAuthErrorEl = document.getElementById("email-auth-error");
+const emailAuthSubmitBtn = document.getElementById("email-auth-submit-btn");
+const emailAuthToggleBtn = document.getElementById("email-auth-toggle-btn");
+const emailAuthToggleText = document.getElementById("email-auth-toggle-text");
+const emailAuthForgotBtn = document.getElementById("email-auth-forgot-btn");
+
+let emailAuthMode = "login"; // "login" | "signup"
+
+function updateEmailAuthUI() {
+  if (emailAuthMode === "login") {
+    emailAuthSubmitBtn.textContent = "ログイン";
+    emailAuthToggleText.textContent = "アカウントをお持ちでないですか？";
+    emailAuthToggleBtn.textContent = "新規登録";
+  } else {
+    emailAuthSubmitBtn.textContent = "アカウント作成";
+    emailAuthToggleText.textContent = "すでにアカウントをお持ちですか？";
+    emailAuthToggleBtn.textContent = "ログイン";
+  }
+  emailAuthErrorEl.classList.add("hidden");
+}
+updateEmailAuthUI();
+
+function showEmailAuthError(message) {
+  emailAuthErrorEl.textContent = message;
+  emailAuthErrorEl.classList.remove("hidden");
+}
+
+function translateAuthError(err) {
+  const map = {
+    "auth/email-already-in-use": "このメールアドレスは既に登録されています。",
+    "auth/invalid-email": "メールアドレスの形式が正しくありません。",
+    "auth/weak-password": "パスワードは6文字以上にしてください。",
+    "auth/user-not-found": "該当するアカウントが見つかりません。",
+    "auth/wrong-password": "パスワードが違います。",
+    "auth/invalid-credential": "メールアドレスまたはパスワードが違います。",
+    "auth/missing-password": "パスワードを入力してください。",
+    "auth/too-many-requests": "試行回数が多すぎます。しばらくしてから再試行してください。",
+  };
+  return map[err.code] || err.message;
+}
+
+emailAuthToggleBtn.addEventListener("click", () => {
+  emailAuthMode = emailAuthMode === "login" ? "signup" : "login";
+  updateEmailAuthUI();
+});
+
+emailAuthSubmitBtn.addEventListener("click", () => {
+  const email = emailAuthEmailInput.value.trim();
+  const password = emailAuthPasswordInput.value;
+  if (!email || !password) {
+    showEmailAuthError("メールアドレスとパスワードを入力してください。");
+    return;
+  }
+
+  emailAuthSubmitBtn.disabled = true;
+  const action =
+    emailAuthMode === "login"
+      ? auth.signInWithEmailAndPassword(email, password)
+      : auth.createUserWithEmailAndPassword(email, password);
+
+  action
+    .catch((err) => {
+      console.error("email auth failed", err);
+      showEmailAuthError(translateAuthError(err));
+    })
+    .finally(() => {
+      emailAuthSubmitBtn.disabled = false;
+    });
+});
+
+emailAuthForgotBtn.addEventListener("click", () => {
+  const email = emailAuthEmailInput.value.trim();
+  if (!email) {
+    showEmailAuthError("パスワード再設定にはメールアドレスを入力してください。");
+    return;
+  }
+  auth
+    .sendPasswordResetEmail(email)
+    .then(() => {
+      alert("パスワード再設定メールを送信しました。メールを確認してください。");
+    })
+    .catch((err) => {
+      console.error("password reset failed", err);
+      showEmailAuthError(translateAuthError(err));
+    });
+});
+
 logoutBtn.addEventListener("click", () => {
-  auth.signOut();
+  openConfirmModal({
+    title: "ログアウトしますか？",
+    message: "",
+    okLabel: "ログアウトする",
+    onConfirm: () => auth.signOut(),
+  });
 });
 
 auth.onAuthStateChanged((user) => {
@@ -418,6 +513,10 @@ auth.onAuthStateChanged((user) => {
     userInfoEl.textContent = "👤 " + (user.displayName || user.email || "ログイン中");
     userInfoEl.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
+    emailAuthEmailInput.value = "";
+    emailAuthPasswordInput.value = "";
+
+    ensureUserProfile();
 
     if (!migrationAttempted) {
       migrationAttempted = true;
@@ -432,10 +531,12 @@ auth.onAuthStateChanged((user) => {
     trashBtn.classList.add("hidden");
     trashModal.classList.add("hidden");
     membersModal.classList.add("hidden");
+    profileModal.classList.add("hidden");
     memberAvatarsEl.classList.add("hidden");
     closeCardModal();
     board.innerHTML = "";
     state.projects = [];
+    userProfile = null;
     defaultProjectCreationAttempted = false;
     migrationAttempted = false;
 
@@ -678,6 +779,103 @@ inviteSubmitBtn.addEventListener("click", () => {
 membersCloseBtn.addEventListener("click", () => membersModal.classList.add("hidden"));
 membersModal.addEventListener("click", (e) => {
   if (e.target === membersModal) membersModal.classList.add("hidden");
+});
+
+// ---------- user profile ----------
+// A lightweight per-user profile document, separate from the project/member
+// data above. Holds a display name, optional photo, and a "plan" field that
+// is groundwork for a future Stripe-based billing tier upgrade (no payment
+// processing happens here yet — this just persists the selected plan).
+const usersCollection = db.collection("users");
+let userProfile = null;
+
+const profileModal = document.getElementById("profile-modal");
+const profileCloseBtn = document.getElementById("profile-close-btn");
+const profileAvatarEl = document.getElementById("profile-avatar");
+const profileEmailDisplay = document.getElementById("profile-email-display");
+const profileNameInput = document.getElementById("profile-name-input");
+const profilePlanSelect = document.getElementById("profile-plan-select");
+const profileSaveBtn = document.getElementById("profile-save-btn");
+
+function ensureUserProfile() {
+  if (!currentUser) return;
+  usersCollection
+    .doc(currentUser.uid)
+    .get()
+    .then((snap) => {
+      if (snap.exists) {
+        userProfile = snap.data();
+      } else {
+        userProfile = {
+          displayName: currentUser.displayName || (currentUser.email || "").split("@")[0],
+          email: currentUser.email || "",
+          photoURL: currentUser.photoURL || null,
+          plan: "free",
+          createdAt: new Date().toISOString(),
+        };
+        usersCollection
+          .doc(currentUser.uid)
+          .set(userProfile)
+          .catch((err) => console.error("failed to create user profile", err));
+      }
+      updateUserInfoDisplay();
+    })
+    .catch((err) => console.error("failed to load user profile", err));
+}
+
+function updateUserInfoDisplay() {
+  if (!currentUser) return;
+  const name = (userProfile && userProfile.displayName) || currentUser.displayName || currentUser.email;
+  userInfoEl.textContent = "👤 " + name;
+}
+
+function openProfileModal() {
+  if (!currentUser) return;
+  const name = (userProfile && userProfile.displayName) || currentUser.displayName || currentUser.email || "?";
+  const photoURL = (userProfile && userProfile.photoURL) || currentUser.photoURL || null;
+
+  profileAvatarEl.textContent = "";
+  profileAvatarEl.style.backgroundImage = "";
+  if (photoURL) {
+    profileAvatarEl.style.backgroundImage = `url(${photoURL})`;
+  } else {
+    profileAvatarEl.style.background = avatarColorFor(currentUser.email || name);
+    profileAvatarEl.textContent = name.trim().charAt(0).toUpperCase();
+  }
+
+  profileEmailDisplay.textContent = currentUser.email || "";
+  profileNameInput.value = name;
+  profilePlanSelect.value = (userProfile && userProfile.plan) || "free";
+  profileModal.classList.remove("hidden");
+}
+
+userInfoEl.addEventListener("click", openProfileModal);
+profileCloseBtn.addEventListener("click", () => profileModal.classList.add("hidden"));
+profileModal.addEventListener("click", (e) => {
+  if (e.target === profileModal) profileModal.classList.add("hidden");
+});
+
+profileSaveBtn.addEventListener("click", () => {
+  if (!currentUser) return;
+  const name = profileNameInput.value.trim() || (userProfile && userProfile.displayName) || currentUser.email;
+  const plan = profilePlanSelect.value;
+  userProfile = Object.assign({}, userProfile, {
+    displayName: name,
+    plan,
+    email: currentUser.email || "",
+  });
+
+  usersCollection
+    .doc(currentUser.uid)
+    .set(userProfile, { merge: true })
+    .then(() => {
+      updateUserInfoDisplay();
+      profileModal.classList.add("hidden");
+    })
+    .catch((err) => {
+      console.error("failed to save profile", err);
+      alert("プロフィールの保存に失敗しました。");
+    });
 });
 
 // ---------- view tabs ----------
@@ -1050,8 +1248,26 @@ function renderCalendarView() {
   const cardsByDate = {};
   project.columns.forEach((column) => {
     column.cards.forEach((card) => {
-      if (card.dueDate) {
-        (cardsByDate[card.dueDate] = cardsByDate[card.dueDate] || []).push({ card, column });
+      if (!card.dueDate && !card.startDate) return;
+      const startStr = card.startDate || card.dueDate;
+      const endStr = card.dueDate || card.startDate;
+      const isRange = !!(card.startDate && card.dueDate && card.startDate !== card.dueDate);
+
+      const cursor = new Date(startStr + "T00:00:00");
+      const end = new Date(endStr + "T00:00:00");
+      let guard = 0;
+      while (cursor <= end && guard < 366) {
+        const dateStr = cursor.toISOString().slice(0, 10);
+        const rangePos = !isRange
+          ? null
+          : dateStr === startStr
+          ? "start"
+          : dateStr === endStr
+          ? "end"
+          : "mid";
+        (cardsByDate[dateStr] = cardsByDate[dateStr] || []).push({ card, column, isRange, rangePos });
+        cursor.setDate(cursor.getDate() + 1);
+        guard++;
       }
     });
   });
@@ -1087,12 +1303,19 @@ function renderCalendarView() {
     num.textContent = String(d);
     cell.appendChild(num);
 
-    (cardsByDate[dateStr] || []).forEach(({ card, column }) => {
+    (cardsByDate[dateStr] || []).forEach(({ card, column, isRange, rangePos }) => {
       const chip = document.createElement("div");
       chip.className = "calendar-card-chip";
       if (card.priority) chip.classList.add(`priority-${card.priority}`);
+      if (isRange) {
+        chip.classList.add("range");
+        if (rangePos === "start") chip.classList.add("range-start");
+        if (rangePos === "end") chip.classList.add("range-end");
+      }
       chip.textContent = card.text;
-      chip.title = column.title;
+      chip.title =
+        column.title +
+        (isRange ? `\n${card.startDate} 〜 ${card.dueDate}` : card.dueDate ? `\n${card.dueDate}` : "");
       chip.addEventListener("click", () => openCardModal(column.id, card.id));
       cell.appendChild(chip);
     });
@@ -1635,7 +1858,8 @@ modalCommentInput.addEventListener("keydown", async (e) => {
   found.card.comments = found.card.comments || [];
   const comment = {
     id: uid(),
-    author: currentUser.displayName || currentUser.email || "匿名",
+    author:
+      (userProfile && userProfile.displayName) || currentUser.displayName || currentUser.email || "匿名",
     text,
     createdAt: new Date().toISOString(),
   };
