@@ -704,6 +704,11 @@ auth.onAuthStateChanged((user) => {
     defaultProjectCreationAttempted = false;
     migrationAttempted = false;
 
+    if (userProfileUnsub) {
+      userProfileUnsub();
+      userProfileUnsub = null;
+    }
+
     stopProjectsListener();
   }
 });
@@ -1022,9 +1027,9 @@ membersModal.addEventListener("click", (e) => {
 
 // ---------- user profile ----------
 // A lightweight per-user profile document, separate from the project/member
-// data above. Holds a display name, optional photo, and a "plan" field that
-// is groundwork for a future Stripe-based billing tier upgrade (no payment
-// processing happens here yet — this just persists the selected plan).
+// data above. Holds a display name, optional photo, and the user's billing
+// plan/subscription state, which is written by the Stripe webhook (see
+// api/stripe-webhook.js) — the client only ever reads these fields.
 const usersCollection = db.collection("users");
 let userProfile = null;
 
@@ -1033,15 +1038,27 @@ const profileCloseBtn = document.getElementById("profile-close-btn");
 const profileAvatarEl = document.getElementById("profile-avatar");
 const profileEmailDisplay = document.getElementById("profile-email-display");
 const profileNameInput = document.getElementById("profile-name-input");
-const profilePlanSelect = document.getElementById("profile-plan-select");
+const profilePlanInfoEl = document.getElementById("profile-plan-info");
+const profileChangePlanBtn = document.getElementById("profile-change-plan-btn");
+const profileManageBillingBtn = document.getElementById("profile-manage-billing-btn");
 const profileSaveBtn = document.getElementById("profile-save-btn");
 
+let userProfileUnsub = null;
+
+// Live-listens to the user's profile doc (instead of a one-time get()) so
+// that a plan change written server-side by the Stripe webhook — which can
+// happen at any moment after a checkout completes or a subscription renews —
+// shows up immediately in the UI without needing a page reload.
 function ensureUserProfile() {
   if (!currentUser) return;
-  usersCollection
-    .doc(currentUser.uid)
-    .get()
-    .then((snap) => {
+  if (userProfileUnsub) {
+    userProfileUnsub();
+    userProfileUnsub = null;
+  }
+
+  const ref = usersCollection.doc(currentUser.uid);
+  userProfileUnsub = ref.onSnapshot(
+    (snap) => {
       if (snap.exists) {
         userProfile = snap.data();
       } else {
@@ -1052,14 +1069,16 @@ function ensureUserProfile() {
           plan: "free",
           createdAt: new Date().toISOString(),
         };
-        usersCollection
-          .doc(currentUser.uid)
-          .set(userProfile)
-          .catch((err) => console.error("failed to create user profile", err));
+        ref.set(userProfile).catch((err) => console.error("failed to create user profile", err));
       }
       updateUserInfoDisplay();
-    })
-    .catch((err) => console.error("failed to load user profile", err));
+      updatePlanNote();
+      applyViewState();
+      if (!plansModal.classList.contains("hidden")) refreshPlansModalState();
+      if (!profileModal.classList.contains("hidden")) refreshProfileModalPlanInfo();
+    },
+    (err) => console.error("failed to load user profile", err)
+  );
 }
 
 function updateUserInfoDisplay() {
@@ -1084,8 +1103,36 @@ function openProfileModal() {
 
   profileEmailDisplay.textContent = currentUser.email || "";
   profileNameInput.value = name;
-  profilePlanSelect.value = (userProfile && userProfile.plan) || "free";
+  refreshProfileModalPlanInfo();
   profileModal.classList.remove("hidden");
+}
+
+function formatDateJP(isoStr) {
+  if (!isoStr) return "";
+  const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+// Plan changes are no longer something the client can just write to
+// Firestore directly (see the users/{uid} security rule) — they only ever
+// come from the Stripe webhook. This just renders whatever userProfile
+// currently holds.
+function refreshProfileModalPlanInfo() {
+  const plan = effectivePlanForCurrentUser();
+  const label = planLimitsFor(plan).label;
+  let text = `現在のプラン: ${label}`;
+
+  if (isAdminUser(currentUser)) {
+    text += "(管理者・制限なし)";
+  } else if (userProfile && userProfile.planCancelAtPeriodEnd && userProfile.currentPeriodEnd) {
+    text += ` ・ ${formatDateJP(userProfile.currentPeriodEnd)}にFreeプランへ変更予定`;
+  } else if (plan !== "free" && userProfile && userProfile.currentPeriodEnd) {
+    text += ` ・ 次回更新日: ${formatDateJP(userProfile.currentPeriodEnd)}`;
+  }
+
+  profilePlanInfoEl.textContent = text;
+  profileManageBillingBtn.classList.toggle("hidden", !(userProfile && userProfile.stripeCustomerId));
 }
 
 userInfoEl.addEventListener("click", openProfileModal);
@@ -1094,49 +1141,95 @@ profileModal.addEventListener("click", (e) => {
   if (e.target === profileModal) profileModal.classList.add("hidden");
 });
 
-// Saves a plan change to the user's profile AND syncs the denormalized
-// `ownerPlan` field onto every project this user owns (so the plan-based
-// feature gating on those projects updates immediately for everyone with
-// access to them). Used by both the profile modal and the plans modal's
-// quick-select buttons.
-function savePlanForCurrentUser(plan) {
-  if (!currentUser) return Promise.resolve();
-  userProfile = Object.assign({}, userProfile, { plan, email: currentUser.email || "" });
-
-  const ownedProjects = state.projects.filter((p) => p.ownerEmail === currentUser.email);
-  ownedProjects.forEach((p) => {
-    p.ownerPlan = plan;
-    saveProject(p);
-  });
-
-  return usersCollection
-    .doc(currentUser.uid)
-    .set(userProfile, { merge: true })
-    .then(() => {
-      updateUserInfoDisplay();
-      updatePlanNote();
-      applyViewState();
-    })
-    .catch((err) => {
-      console.error("failed to save plan", err);
-      alert("プランの保存に失敗しました。");
-    });
-}
-
 profileSaveBtn.addEventListener("click", () => {
   if (!currentUser) return;
   const name = profileNameInput.value.trim() || (userProfile && userProfile.displayName) || currentUser.email;
-  const plan = profilePlanSelect.value;
-  userProfile = Object.assign({}, userProfile, { displayName: name });
 
-  savePlanForCurrentUser(plan).then(() => {
-    profileModal.classList.add("hidden");
-  });
+  usersCollection
+    .doc(currentUser.uid)
+    .set({ displayName: name }, { merge: true })
+    .then(() => {
+      updateUserInfoDisplay();
+      profileModal.classList.add("hidden");
+    })
+    .catch((err) => {
+      console.error("failed to save profile", err);
+      alert("プロフィールの保存に失敗しました。");
+    });
 });
+
+profileChangePlanBtn.addEventListener("click", () => {
+  profileModal.classList.add("hidden");
+  openPlansModal();
+});
+
+profileManageBillingBtn.addEventListener("click", () => {
+  profileManageBillingBtn.disabled = true;
+  callBillingApi("/api/create-portal-session")
+    .then((data) => {
+      window.location.href = data.url;
+    })
+    .catch((err) => {
+      alert(err.message || "お支払い管理ページを開けませんでした。");
+      profileManageBillingBtn.disabled = false;
+    });
+});
+
+// ---------- billing: Firebase ID token + API helper ----------
+async function getIdToken() {
+  if (!auth.currentUser) throw new Error("ログインしていません。");
+  return auth.currentUser.getIdToken();
+}
+
+async function callBillingApi(path, body) {
+  const token = await getIdToken();
+  const res = await fetch(path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body || {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || `リクエストに失敗しました (${res.status})`);
+  }
+  return data;
+}
+
+// ---------- billing: checkout redirect banner ----------
+const billingToastEl = document.getElementById("billing-toast");
+
+function showBillingToast(message, isError) {
+  if (!billingToastEl) return;
+  billingToastEl.textContent = message;
+  billingToastEl.classList.toggle("error", !!isError);
+  billingToastEl.classList.remove("hidden");
+  setTimeout(() => billingToastEl.classList.add("hidden"), 8000);
+}
+
+(function handleCheckoutRedirect() {
+  const params = new URLSearchParams(window.location.search);
+  const checkout = params.get("checkout");
+  if (!checkout) return;
+
+  if (checkout === "success") {
+    showBillingToast("✅ お支払いが完了しました。反映まで数秒お待ちください。");
+  } else if (checkout === "cancel") {
+    showBillingToast("決済がキャンセルされました。", true);
+  }
+
+  params.delete("checkout");
+  const newSearch = params.toString();
+  const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "") + window.location.hash;
+  window.history.replaceState({}, "", newUrl);
+})();
 
 // ---------- plans / upgrade modal ----------
 const plansModal = document.getElementById("plans-modal");
 const plansCloseBtn = document.getElementById("plans-close-btn");
+const plansPendingNoteEl = document.getElementById("plans-pending-note");
 
 function openPlansModal() {
   if (!currentUser) return;
@@ -1146,22 +1239,99 @@ function openPlansModal() {
 
 function refreshPlansModalState() {
   const current = effectivePlanForCurrentUser();
+  const admin = isAdminUser(currentUser);
+
   document.querySelectorAll(".plan-column").forEach((col) => {
-    const isCurrent = col.dataset.plan === current;
+    const colPlan = col.dataset.plan;
+    const isCurrent = colPlan === current;
     col.classList.toggle("current", isCurrent);
     const btn = col.querySelector(".plan-select-btn");
-    if (btn) {
-      btn.disabled = isCurrent;
-      btn.textContent = isCurrent ? "現在のプラン" : "このプランにする";
+    if (!btn) return;
+    btn.disabled = false;
+    btn.dataset.action = "";
+
+    if (admin) {
+      btn.disabled = true;
+      btn.textContent = isCurrent ? "現在のプラン" : "管理者は対象外";
+      return;
+    }
+
+    if (isCurrent) {
+      btn.disabled = true;
+      btn.textContent = "現在のプラン";
+    } else if (colPlan === "free") {
+      if (userProfile && userProfile.planCancelAtPeriodEnd) {
+        btn.textContent = "ダウングレード予定を取消す";
+        btn.dataset.action = "resume";
+      } else {
+        btn.textContent = "ダウングレードする";
+        btn.dataset.action = "downgrade";
+      }
+    } else if (current === "free") {
+      btn.textContent = "このプランにする";
+      btn.dataset.action = "checkout";
+    } else {
+      btn.textContent = "このプランに切り替える";
+      btn.dataset.action = "portal";
     }
   });
+
+  if (plansPendingNoteEl) {
+    if (!admin && userProfile && userProfile.planCancelAtPeriodEnd && userProfile.currentPeriodEnd) {
+      plansPendingNoteEl.textContent = `⚠️ ${formatDateJP(
+        userProfile.currentPeriodEnd
+      )}にFreeプランへ自動的に切り替わります。`;
+      plansPendingNoteEl.classList.remove("hidden");
+    } else {
+      plansPendingNoteEl.classList.add("hidden");
+    }
+  }
 }
 
 document.querySelectorAll(".plan-select-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    savePlanForCurrentUser(btn.dataset.plan).then(() => {
-      refreshPlansModalState();
-    });
+    const plan = btn.dataset.plan;
+    const action = btn.dataset.action;
+    if (!action) return;
+
+    if (action === "checkout") {
+      btn.disabled = true;
+      btn.textContent = "リダイレクト中…";
+      callBillingApi("/api/create-checkout-session", { plan })
+        .then((data) => {
+          window.location.href = data.url;
+        })
+        .catch((err) => {
+          alert(err.message || "決済ページを開けませんでした。");
+          refreshPlansModalState();
+        });
+    } else if (action === "portal") {
+      btn.disabled = true;
+      btn.textContent = "リダイレクト中…";
+      callBillingApi("/api/create-portal-session")
+        .then((data) => {
+          window.location.href = data.url;
+        })
+        .catch((err) => {
+          alert(err.message || "お支払い管理ページを開けませんでした。");
+          refreshPlansModalState();
+        });
+    } else if (action === "downgrade") {
+      openConfirmModal({
+        title: "Freeプランにダウングレードしますか？",
+        message: "現在の請求期間の終了時に反映されます。それまでは今のプランの機能を引き続きご利用いただけます。",
+        okLabel: "ダウングレードする",
+        onConfirm: () => {
+          callBillingApi("/api/cancel-subscription", { resume: false })
+            .then(() => refreshPlansModalState())
+            .catch((err) => alert(err.message || "処理に失敗しました。"));
+        },
+      });
+    } else if (action === "resume") {
+      callBillingApi("/api/cancel-subscription", { resume: true })
+        .then(() => refreshPlansModalState())
+        .catch((err) => alert(err.message || "処理に失敗しました。"));
+    }
   });
 });
 

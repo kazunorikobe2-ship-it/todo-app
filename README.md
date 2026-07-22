@@ -41,7 +41,7 @@ Trello風のカンバンボードアプリ。プレーンなHTML/CSS/JavaScript 
 
 `kazunorikobe2@gmail.com` は固定の管理者(admin)アカウントとして扱われ、自分がオーナーのプロジェクトでは常にBusiness相当の制限なし状態になる(他人のプロジェクトの権限には影響しない)。
 
-プランの変更はヘッダーのユーザー名から開くプロフィール設定、またはプラン比較モーダルの「このプランにする」ボタンから行える。実際の決済(Stripe連携)はまだ実装されておらず、現時点ではプランの切り替えのみが行われる。
+プランの変更はヘッダーのユーザー名から開くプロフィール設定、またはプラン比較モーダルから行える。Pro/Businessへの加入はStripeの決済ページへ遷移し、実際の支払いが完了すると自動的にプランが反映される。ダウングレード・解約は現在の請求期間終了時に反映され、Pro⇔Businessの切り替えはStripeのカスタマーポータル経由で行う。
 
 ## セットアップ
 
@@ -92,9 +92,28 @@ service cloud.firestore {
         request.auth.token.email == resource.data.ownerEmail;
     }
 
-    // プロフィール(表示名・プラン等)。本人のみ読み書き可能。
+    // プロフィール(表示名・プラン・Stripe課金情報)。
+    // 本人は読み取り・表示名の更新はできるが、plan / stripeCustomerId /
+    // stripeSubscriptionId / planStatus / planCancelAtPeriodEnd /
+    // currentPeriodEnd はここでは変更できない(常に同じ値のままである必要が
+    // ある)。これらはStripeのWebhook(api/stripe-webhook.js)がFirebase Admin
+    // SDK経由で書き込む — Admin SDKはこのセキュリティルールを経由しない特別な
+    // 権限を持つため、Webhookからは問題なく書き込める。
     match /users/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      allow create: if request.auth != null && request.auth.uid == uid &&
+        request.resource.data.plan == 'free' &&
+        !('stripeCustomerId' in request.resource.data) &&
+        !('stripeSubscriptionId' in request.resource.data);
+
+      allow update: if request.auth != null && request.auth.uid == uid &&
+        request.resource.data.plan == resource.data.plan &&
+        request.resource.data.get('stripeCustomerId', null) == resource.data.get('stripeCustomerId', null) &&
+        request.resource.data.get('stripeSubscriptionId', null) == resource.data.get('stripeSubscriptionId', null) &&
+        request.resource.data.get('planStatus', null) == resource.data.get('planStatus', null) &&
+        request.resource.data.get('planCancelAtPeriodEnd', null) == resource.data.get('planCancelAtPeriodEnd', null) &&
+        request.resource.data.get('currentPeriodEnd', null) == resource.data.get('currentPeriodEnd', null);
     }
   }
 }
@@ -140,8 +159,47 @@ service firebase.storage {
 
 ## Vercelへのデプロイ
 
-ビルド設定不要の静的サイトなので、Vercelでリポジトリをインポートするだけでデプロイできる。
+フロント自体はビルド不要の静的サイトだが、Stripe決済用に `api/` 配下のVercel Serverless Functions(Node.js)を使っている。`package.json` の依存(`stripe` / `firebase-admin`)はVercelが自動で `npm install` するので、リポジトリをインポートするだけでどちらも一緒にデプロイされる。
 
-## プロフィール・プラン(今後のStripe連携について)
+## プラン・Stripe決済
 
-プラン(Free/Pro/Business)は実際にプロジェクト数・表示形式・添付ファイル容量・公開共有の可否を制御している(詳細は上の「プラン制限」を参照)。ただし決済処理そのもの(Stripe連携)はまだ実装しておらず、プロフィール設定またはプラン比較モーダルからプランを選ぶと `users/{uid}` ドキュメントの `plan` フィールドが即座に書き換わるだけ。将来Stripeを繋ぐ場合は、Checkout完了後のWebhookを受けてこの `plan` フィールドを更新するサーバーサイド(Cloud Functionsなど)を追加するのが自然な流れになる。
+プラン(Free/Pro/Business)は実際にプロジェクト数・表示形式・添付ファイル容量・公開共有の可否を制御している(詳細は上の「プラン制限」を参照)。Pro(¥500/月)・Business(¥800/月)はStripeの実際のサブスクリプション課金と連動しており、Freeへのダウングレード・解約は現在の請求期間終了時に反映される。
+
+### アーキテクチャ
+
+- `api/create-checkout-session.js` — ログイン中ユーザーのFirebase IDトークンを検証し、選んだプラン(Pro/Business)のStripe Checkoutセッションを作成してリダイレクト用URLを返す。
+- `api/create-portal-session.js` — Stripeのカスタマーポータル(支払い方法の変更、請求履歴の確認、Pro⇔Businessの切り替え、即時解約など)を開くためのURLを返す。
+- `api/cancel-subscription.js` — 「ダウングレードする」を押したときに呼ばれる。実際にはサブスクリプションを即解約せず `cancel_at_period_end: true` を設定するだけなので、支払い済みの期間はそのプランの機能を使い続けられる。
+- `api/stripe-webhook.js` — Stripeからのイベント(`checkout.session.completed` / `customer.subscription.updated` / `customer.subscription.deleted`)を受け取り、Firebase Admin SDK経由で `users/{uid}` の `plan` 等を更新する。**プランを実際に書き換えるのはこのWebhookだけ**であり、クライアント(ブラウザ)からは `plan` フィールドを直接書き換えられないようFirestoreルールで禁止している(上の「Firestore ルール」参照)。Admin SDKはセキュリティルールを経由しない特別な権限を持つため、Webhookからは問題なく書き込める。
+
+`users/{uid}` ドキュメントに追加されるフィールド:
+
+| フィールド | 内容 |
+|---|---|
+| `plan` | `free` / `pro` / `business` |
+| `stripeCustomerId` | Stripe Customer ID |
+| `stripeSubscriptionId` | Stripe Subscription ID |
+| `planStatus` | Stripe Subscriptionの `status`(`active` 等) |
+| `planCancelAtPeriodEnd` | 現在の請求期間終了時に解約予定かどうか |
+| `currentPeriodEnd` | 現在の請求期間の終了日時(ISO文字列) |
+
+### Vercel環境変数
+
+Vercelプロジェクトの Settings → Environment Variables に以下を設定する(まずはテストモードの値でOK):
+
+| 変数名 | 値 |
+|---|---|
+| `STRIPE_SECRET_KEY` | StripeダッシュボードのAPIキー(シークレットキー。テストモードは `sk_test_...`) |
+| `STRIPE_WEBHOOK_SECRET` | Webhookエンドポイントの signing secret(`whsec_...`) |
+| `STRIPE_PRICE_PRO` | Proプラン(¥500/月)のPrice ID(`price_...`) |
+| `STRIPE_PRICE_BUSINESS` | Businessプラン(¥800/月)のPrice ID(`price_...`) |
+| `FIREBASE_SERVICE_ACCOUNT_KEY` | Firebaseのサービスアカウント鍵(JSON全体をそのまま貼り付け)。Firebaseコンソール → プロジェクトの設定 → サービスアカウント → 新しい秘密鍵の生成、で取得 |
+
+### Stripe Webhookエンドポイント
+
+StripeダッシュボードでWebhookエンドポイントを追加する:
+
+- URL: `https://<デプロイ先のドメイン>/api/stripe-webhook` (例: `https://kanban.dubdesign.net/api/stripe-webhook`)
+- 購読するイベント: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`
+
+作成後に表示される signing secret を `STRIPE_WEBHOOK_SECRET` に設定する。

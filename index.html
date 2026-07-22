@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="billing-toast" class="billing-toast hidden"></div>
   <div class="app-shell">
     <aside id="project-drawer" class="project-drawer">
       <div class="drawer-header">
@@ -259,12 +260,11 @@
 
       <div class="modal-field">
         <label>プラン</label>
-        <select id="profile-plan-select">
-          <option value="free">Free</option>
-          <option value="pro">Pro</option>
-          <option value="business">Business</option>
-        </select>
-        <p class="field-hint">プランに応じた課金機能は今後Stripe連携で対応予定です。現時点では選択内容の保存のみ行われます。</p>
+        <div id="profile-plan-info" class="profile-plan-info">現在のプラン: Free</div>
+        <div class="profile-plan-actions">
+          <button id="profile-change-plan-btn" class="link-btn small" type="button">プランを変更</button>
+          <button id="profile-manage-billing-btn" class="link-btn small hidden" type="button">お支払い情報を管理</button>
+        </div>
       </div>
 
       <div class="modal-actions">
@@ -279,6 +279,7 @@
       <button id="plans-close-btn" class="modal-close-x">✕</button>
       <h2>🚀 プランをアップグレード</h2>
       <p class="modal-sub">プロジェクト数・表示形式・添付ファイルの上限を解放できます。</p>
+      <p id="plans-pending-note" class="field-hint pending-downgrade hidden"></p>
 
       <div class="plans-columns">
         <div class="plan-column" data-plan="free">
@@ -313,7 +314,7 @@
         </div>
       </div>
 
-      <p class="field-hint">※実際の決済(Stripe連携)は今後対応予定です。現時点ではプランの切り替えのみ行われます。</p>
+      <p class="field-hint">お支払いはStripeの安全な決済ページで行われます。ダウングレード・解約は現在の請求期間終了時に反映されます。</p>
     </div>
   </div>
 

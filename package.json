@@ -1,0 +1,13 @@
+{
+  "name": "todo-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Kanban board (static HTML/CSS/JS front-end) + Vercel Serverless Functions for Stripe billing.",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "stripe": "^16.2.0",
+    "firebase-admin": "^12.3.0"
+  }
+}
