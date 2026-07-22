@@ -754,11 +754,32 @@ async function getCalendarAccessToken() {
 
   const result = await auth.signInWithPopup(calendarProvider);
   const credential = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
-  if (!credential || !credential.accessToken) {
-    console.error("Googleカレンダーの認可結果にaccessTokenが含まれていません:", result);
+  // In some cases the reconstructed `credential` object comes back without
+  // .accessToken even though Google's raw token response actually contains
+  // one (under the SDK's internal _tokenResponse.oauthAccessToken field).
+  // Fall back to reading it directly before giving up entirely.
+  const rawTokenResponse = result && result._tokenResponse;
+  const accessToken =
+    (credential && credential.accessToken) ||
+    (rawTokenResponse && rawTokenResponse.oauthAccessToken) ||
+    null;
+
+  if (!accessToken) {
+    console.error("Googleカレンダーの認可結果にaccessTokenが含まれていません。診断情報:", {
+      hasCredential: !!credential,
+      credentialAccessToken: credential && credential.accessToken,
+      credentialIdToken: credential && credential.idToken,
+      credentialProviderId: credential && credential.providerId,
+      operationType: result && result.operationType,
+      rawTokenResponseKeys: rawTokenResponse ? Object.keys(rawTokenResponse) : null,
+      rawOauthAccessToken: rawTokenResponse && rawTokenResponse.oauthAccessToken,
+      rawOauthExpireIn: rawTokenResponse && rawTokenResponse.oauthExpireIn,
+      rawOauthScope: rawTokenResponse && (rawTokenResponse.oauthScope || rawTokenResponse.scope),
+      rawProviderId: rawTokenResponse && rawTokenResponse.providerId,
+    });
     throw new Error("Googleカレンダーへのアクセス許可を取得できませんでした(再度お試しください)");
   }
-  calendarAccessToken = credential.accessToken;
+  calendarAccessToken = accessToken;
   // Google's OAuth access tokens are typically valid ~1 hour; Firebase
   // doesn't expose the exact expiry, so cache conservatively for 50 minutes
   // and just re-prompt after that rather than risk using a stale token.
