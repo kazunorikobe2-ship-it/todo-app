@@ -930,6 +930,44 @@ addColumnBtn.addEventListener("click", () => {
   saveProject(project);
 });
 
+// Tracks the card currently being dragged so dragover/drop handlers know
+// what's moving without relying on dataTransfer.getData() (unreliable to
+// read during dragover in some browsers). Cleared on dragend.
+let draggingCardInfo = null;
+
+// Returns the card element the dragged card should be inserted BEFORE,
+// based on vertical mouse position (compares against each card's vertical
+// midpoint). Returns null if the card should go at the very end of the list.
+function getDragAfterElement(container, y) {
+  const els = [...container.querySelectorAll(".card:not(.dragging)")];
+  return els.reduce(
+    (closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = y - box.top - box.height / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset, element: child };
+      }
+      return closest;
+    },
+    { offset: Number.NEGATIVE_INFINITY, element: null }
+  ).element;
+}
+
+function ensureDropPlaceholder(height) {
+  let placeholder = document.querySelector(".card-drop-placeholder");
+  if (!placeholder) {
+    placeholder = document.createElement("div");
+    placeholder.className = "card-drop-placeholder";
+  }
+  placeholder.style.height = (height || 56) + "px";
+  return placeholder;
+}
+
+function clearDragVisuals() {
+  document.querySelectorAll(".card-drop-placeholder").forEach((el) => el.remove());
+  document.querySelectorAll(".column.drag-over").forEach((el) => el.classList.remove("drag-over"));
+}
+
 function renderBoard() {
   const project = getActiveProject();
   board.innerHTML = "";
@@ -983,6 +1021,8 @@ function renderBoard() {
 
       cardEl.addEventListener("dragstart", (e) => {
         cardEl.classList.add("dragging");
+        draggingCardInfo = { cardId: card.id, fromColumnId: column.id, height: cardEl.offsetHeight };
+        e.dataTransfer.effectAllowed = "move";
         e.dataTransfer.setData(
           "text/plain",
           JSON.stringify({ cardId: card.id, fromColumnId: column.id })
@@ -990,6 +1030,8 @@ function renderBoard() {
       });
       cardEl.addEventListener("dragend", () => {
         cardEl.classList.remove("dragging");
+        draggingCardInfo = null;
+        clearDragVisuals();
       });
       cardEl.addEventListener("click", () => openCardModal(column.id, card.id));
 
@@ -1114,26 +1156,54 @@ function renderBoard() {
       columnEl.appendChild(addWrap);
     }
 
-    // drop handling
-    columnEl.addEventListener("dragover", (e) => {
-      if (!editable) return;
+    // drop handling — dragover shows a placeholder at the exact spot the
+    // card would land (based on cursor position among the existing cards),
+    // and drop inserts the card at that same spot instead of always
+    // appending to the end. Handles both cross-column moves and reordering
+    // within the same list.
+    cardList.addEventListener("dragover", (e) => {
+      if (!editable || !draggingCardInfo) return;
       e.preventDefault();
+      e.stopPropagation();
       columnEl.classList.add("drag-over");
+      const placeholder = ensureDropPlaceholder(draggingCardInfo.height);
+      const afterElement = getDragAfterElement(cardList, e.clientY);
+      if (afterElement == null) {
+        cardList.appendChild(placeholder);
+      } else {
+        cardList.insertBefore(placeholder, afterElement);
+      }
     });
-    columnEl.addEventListener("dragleave", () => {
+
+    cardList.addEventListener("dragleave", (e) => {
+      if (cardList.contains(e.relatedTarget)) return;
       columnEl.classList.remove("drag-over");
+      const placeholder = cardList.querySelector(".card-drop-placeholder");
+      if (placeholder) placeholder.remove();
     });
-    columnEl.addEventListener("drop", (e) => {
-      if (!editable) return;
+
+    cardList.addEventListener("drop", (e) => {
+      if (!editable || !draggingCardInfo) return;
       e.preventDefault();
+      e.stopPropagation();
       columnEl.classList.remove("drag-over");
-      const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-      const fromColumn = project.columns.find((c) => c.id === data.fromColumnId);
+
+      const afterElement = getDragAfterElement(cardList, e.clientY);
+      clearDragVisuals();
+
+      const { cardId, fromColumnId } = draggingCardInfo;
+      const fromColumn = project.columns.find((c) => c.id === fromColumnId);
       if (!fromColumn) return;
-      const cardIndex = fromColumn.cards.findIndex((c) => c.id === data.cardId);
+      const cardIndex = fromColumn.cards.findIndex((c) => c.id === cardId);
       if (cardIndex === -1) return;
       const [movedCard] = fromColumn.cards.splice(cardIndex, 1);
-      column.cards.push(movedCard);
+
+      let insertIndex = column.cards.length;
+      if (afterElement) {
+        const idx = column.cards.findIndex((c) => c.id === afterElement.dataset.cardId);
+        if (idx !== -1) insertIndex = idx;
+      }
+      column.cards.splice(insertIndex, 0, movedCard);
       saveProject(project);
     });
 
