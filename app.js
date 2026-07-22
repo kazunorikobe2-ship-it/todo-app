@@ -7,12 +7,39 @@ function makeCard(text) {
   return {
     id: uid(),
     text,
+    startDate: null,
     dueDate: null,
     priority: null,
     notes: "",
     members: [],
     comments: [],
     attachments: [],
+  };
+}
+
+function makeColumn(title, cards) {
+  return { id: uid(), title, cards: cards || [] };
+}
+
+function makeProject(name, seedSampleData) {
+  if (seedSampleData) {
+    return {
+      id: uid(),
+      name,
+      columns: [
+        makeColumn("To Do", [
+          makeCard("カードをクリックすると詳細を編集できます"),
+          makeCard("「+ カードを追加」で新規作成"),
+        ]),
+        makeColumn("In Progress"),
+        makeColumn("Done"),
+      ],
+    };
+  }
+  return {
+    id: uid(),
+    name,
+    columns: [makeColumn("To Do"), makeColumn("In Progress"), makeColumn("Done")],
   };
 }
 
@@ -102,28 +129,70 @@ function buildAttachmentChip(attachment, onRemove) {
   return wrap;
 }
 
+function priorityLabel(p) {
+  if (p === "high") return "高";
+  if (p === "medium") return "中";
+  if (p === "low") return "低";
+  return "";
+}
+
+// ---------- state & firestore ----------
 function defaultState() {
   return {
-    columns: [
-      {
-        id: uid(),
-        title: "To Do",
-        cards: [
-          makeCard("カードをクリックすると詳細を編集できます"),
-          makeCard("「+ カードを追加」で新規作成"),
-        ],
-      },
-      { id: uid(), title: "In Progress", cards: [] },
-      { id: uid(), title: "Done", cards: [] },
-    ],
+    projects: [makeProject("マイプロジェクト", true)],
+    trash: [],
   };
 }
 
-// ---------- firestore ----------
+// Handles both the current {projects:[...], trash:[...]} shape and the
+// legacy single-board {columns:[...], trash:[...]} shape from before
+// the project concept existed, so nobody's existing board data is lost.
+function migrateState(data) {
+  if (data && Array.isArray(data.projects) && data.projects.length) {
+    return {
+      projects: data.projects,
+      trash: Array.isArray(data.trash) ? data.trash : [],
+    };
+  }
+  if (data && Array.isArray(data.columns)) {
+    return {
+      projects: [{ id: uid(), name: "マイプロジェクト", columns: data.columns }],
+      trash: Array.isArray(data.trash) ? data.trash : [],
+    };
+  }
+  return defaultState();
+}
+
 const boardRef = db.collection("kanban").doc("board");
 
-let state = { columns: [] };
+let state = { projects: [], trash: [] };
 let unsubscribeBoard = null;
+
+const CURRENT_PROJECT_KEY = "kanban-current-project";
+const DRAWER_OPEN_KEY = "kanban-drawer-open";
+const CURRENT_VIEW_KEY = "kanban-current-view";
+
+let currentProjectId = localStorage.getItem(CURRENT_PROJECT_KEY) || null;
+let currentView = localStorage.getItem(CURRENT_VIEW_KEY) || "board";
+if (!["board", "table", "calendar", "timeline", "dashboard"].includes(currentView)) {
+  currentView = "board";
+}
+let drawerOpen = localStorage.getItem(DRAWER_OPEN_KEY);
+drawerOpen = drawerOpen === null ? true : drawerOpen === "true";
+
+function getActiveProject() {
+  return state.projects.find((p) => p.id === currentProjectId) || state.projects[0];
+}
+
+function ensureActiveProject() {
+  if (!state.projects.length) {
+    state.projects.push(makeProject("マイプロジェクト", true));
+  }
+  if (!state.projects.find((p) => p.id === currentProjectId)) {
+    currentProjectId = state.projects[0].id;
+    localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
+  }
+}
 
 function saveState() {
   boardRef.set(state).catch((err) => {
@@ -136,14 +205,13 @@ function saveState() {
 
 function handleBoardSnapshot(snap) {
   if (snap.exists) {
-    const data = snap.data();
-    state = data && Array.isArray(data.columns) ? data : defaultState();
+    state = migrateState(snap.data());
   } else {
     state = defaultState();
     boardRef.set(state);
   }
-  if (!Array.isArray(state.trash)) state.trash = [];
-  renderBoard();
+  ensureActiveProject();
+  renderAll();
   syncModalIfOpen();
   updateTrashBadge();
   if (!trashModal.classList.contains("hidden")) renderTrash();
@@ -151,6 +219,20 @@ function handleBoardSnapshot(snap) {
 
 function handleBoardError(err) {
   console.error("Firestore listen failed", err);
+}
+
+function renderAll() {
+  renderProjectList();
+  const project = getActiveProject();
+  projectTitleEl.textContent = "📋 " + (project ? project.name : "Kanban Board");
+  applyDrawerState();
+  applyViewState();
+
+  if (currentView === "board") renderBoard();
+  else if (currentView === "table") renderTableView();
+  else if (currentView === "calendar") renderCalendarView();
+  else if (currentView === "timeline") renderTimelineView();
+  else if (currentView === "dashboard") renderDashboardView();
 }
 
 // ---------- Google authentication ----------
@@ -204,26 +286,126 @@ auth.onAuthStateChanged((user) => {
   }
 });
 
-// ---------- board rendering ----------
+// ---------- project drawer ----------
+const projectDrawer = document.getElementById("project-drawer");
+const drawerToggleBtn = document.getElementById("drawer-toggle-btn");
+const projectTitleEl = document.getElementById("project-title");
+const projectListEl = document.getElementById("project-list");
+const addProjectBtn = document.getElementById("add-project-btn");
+
+function applyDrawerState() {
+  projectDrawer.classList.toggle("closed", !drawerOpen);
+}
+
+drawerToggleBtn.addEventListener("click", () => {
+  drawerOpen = !drawerOpen;
+  localStorage.setItem(DRAWER_OPEN_KEY, String(drawerOpen));
+  applyDrawerState();
+});
+
+function renderProjectList() {
+  projectListEl.innerHTML = "";
+  state.projects.forEach((project) => {
+    const row = document.createElement("div");
+    row.className = "project-item" + (project.id === currentProjectId ? " active" : "");
+    row.addEventListener("click", () => {
+      currentProjectId = project.id;
+      localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
+      renderAll();
+    });
+
+    const nameInput = document.createElement("input");
+    nameInput.className = "project-name-input";
+    nameInput.value = project.name;
+    nameInput.addEventListener("click", (e) => e.stopPropagation());
+    nameInput.addEventListener("change", () => {
+      project.name = nameInput.value.trim() || project.name;
+      saveState();
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "project-delete-btn";
+    delBtn.textContent = "✕";
+    delBtn.title = "プロジェクトを削除";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (state.projects.length <= 1) {
+        alert("最後のプロジェクトは削除できません。");
+        return;
+      }
+      openConfirmModal({
+        title: "プロジェクトを削除しますか？",
+        message: `「${project.name}」とその中のすべてのリスト・カードが完全に削除されます。この操作は元に戻せません。`,
+        okLabel: "削除する",
+        onConfirm: () => {
+          state.projects = state.projects.filter((p) => p.id !== project.id);
+          if (currentProjectId === project.id) {
+            currentProjectId = state.projects[0].id;
+            localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
+          }
+          saveState();
+        },
+      });
+    });
+
+    row.appendChild(nameInput);
+    row.appendChild(delBtn);
+    projectListEl.appendChild(row);
+  });
+}
+
+addProjectBtn.addEventListener("click", () => {
+  const project = makeProject("新しいプロジェクト", false);
+  state.projects.push(project);
+  currentProjectId = project.id;
+  localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
+  saveState();
+});
+
+// ---------- view tabs ----------
+const viewTabButtons = document.querySelectorAll(".view-tab");
+const viewPanels = {
+  board: document.getElementById("board"),
+  table: document.getElementById("table-view"),
+  calendar: document.getElementById("calendar-view"),
+  timeline: document.getElementById("timeline-view"),
+  dashboard: document.getElementById("dashboard-view"),
+};
+
+function applyViewState() {
+  viewTabButtons.forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.view === currentView);
+  });
+  Object.keys(viewPanels).forEach((key) => {
+    viewPanels[key].classList.toggle("hidden", key !== currentView);
+  });
+}
+
+viewTabButtons.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    currentView = tab.dataset.view;
+    localStorage.setItem(CURRENT_VIEW_KEY, currentView);
+    renderAll();
+  });
+});
+
+// ---------- board view ----------
 const board = document.getElementById("board");
 const addColumnBtn = document.getElementById("add-column-btn");
 
 addColumnBtn.addEventListener("click", () => {
-  state.columns.push({ id: uid(), title: "新しいリスト", cards: [] });
+  const project = getActiveProject();
+  if (!project) return;
+  project.columns.push(makeColumn("新しいリスト"));
   saveState();
 });
 
-function priorityLabel(p) {
-  if (p === "high") return "高";
-  if (p === "medium") return "中";
-  if (p === "low") return "低";
-  return "";
-}
-
 function renderBoard() {
+  const project = getActiveProject();
   board.innerHTML = "";
+  if (!project) return;
 
-  state.columns.forEach((column) => {
+  project.columns.forEach((column) => {
     const columnEl = document.createElement("div");
     columnEl.className = "column";
     columnEl.dataset.columnId = column.id;
@@ -246,7 +428,7 @@ function renderBoard() {
     deleteBtn.title = "リストを削除";
     deleteBtn.addEventListener("click", () => {
       if (confirm(`「${column.title}」を削除しますか？`)) {
-        state.columns = state.columns.filter((c) => c.id !== column.id);
+        project.columns = project.columns.filter((c) => c.id !== column.id);
         saveState();
       }
     });
@@ -395,7 +577,7 @@ function renderBoard() {
       e.preventDefault();
       columnEl.classList.remove("drag-over");
       const data = JSON.parse(e.dataTransfer.getData("text/plain"));
-      const fromColumn = state.columns.find((c) => c.id === data.fromColumnId);
+      const fromColumn = project.columns.find((c) => c.id === data.fromColumnId);
       if (!fromColumn) return;
       const cardIndex = fromColumn.cards.findIndex((c) => c.id === data.cardId);
       if (cardIndex === -1) return;
@@ -408,10 +590,388 @@ function renderBoard() {
   });
 }
 
+// ---------- table view ----------
+function renderTableView() {
+  const project = getActiveProject();
+  const panel = viewPanels.table;
+  panel.innerHTML = "";
+  if (!project) return;
+
+  const rows = [];
+  project.columns.forEach((column) => {
+    column.cards.forEach((card) => rows.push({ card, column }));
+  });
+
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "table-empty";
+    empty.textContent = "カードがありません";
+    panel.appendChild(empty);
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "kanban-table";
+
+  const thead = document.createElement("thead");
+  thead.innerHTML =
+    "<tr><th>タイトル</th><th>リスト</th><th>開始日</th><th>期日</th><th>重要度</th><th>メンバー</th><th>💬</th><th>📎</th></tr>";
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+
+  rows.forEach(({ card, column }) => {
+    const tr = document.createElement("tr");
+    tr.addEventListener("click", () => openCardModal(column.id, card.id));
+
+    const tdTitle = document.createElement("td");
+    tdTitle.textContent = card.text;
+    tr.appendChild(tdTitle);
+
+    const tdList = document.createElement("td");
+    tdList.textContent = column.title;
+    tr.appendChild(tdList);
+
+    const tdStart = document.createElement("td");
+    tdStart.textContent = card.startDate || "";
+    tr.appendChild(tdStart);
+
+    const tdDue = document.createElement("td");
+    tdDue.textContent = card.dueDate || "";
+    tr.appendChild(tdDue);
+
+    const tdPriority = document.createElement("td");
+    if (card.priority) {
+      const b = document.createElement("span");
+      b.className = `badge priority-${card.priority}`;
+      b.textContent = priorityLabel(card.priority);
+      tdPriority.appendChild(b);
+    }
+    tr.appendChild(tdPriority);
+
+    const tdMembers = document.createElement("td");
+    tdMembers.textContent = (card.members || []).join(", ");
+    tr.appendChild(tdMembers);
+
+    const tdComments = document.createElement("td");
+    tdComments.textContent =
+      card.comments && card.comments.length ? String(card.comments.length) : "";
+    tr.appendChild(tdComments);
+
+    const tdAttachments = document.createElement("td");
+    tdAttachments.textContent =
+      card.attachments && card.attachments.length ? String(card.attachments.length) : "";
+    tr.appendChild(tdAttachments);
+
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  panel.appendChild(table);
+}
+
+// ---------- calendar view ----------
+let calendarCursor = new Date();
+
+function renderCalendarView() {
+  const project = getActiveProject();
+  const panel = viewPanels.calendar;
+  panel.innerHTML = "";
+  if (!project) return;
+
+  const year = calendarCursor.getFullYear();
+  const month = calendarCursor.getMonth();
+
+  const header = document.createElement("div");
+  header.className = "calendar-header";
+
+  const prevBtn = document.createElement("button");
+  prevBtn.className = "calendar-nav-btn";
+  prevBtn.textContent = "‹";
+  prevBtn.addEventListener("click", () => {
+    calendarCursor = new Date(year, month - 1, 1);
+    renderCalendarView();
+  });
+
+  const label = document.createElement("div");
+  label.className = "calendar-label";
+  label.textContent = `${year}年 ${month + 1}月`;
+
+  const nextBtn = document.createElement("button");
+  nextBtn.className = "calendar-nav-btn";
+  nextBtn.textContent = "›";
+  nextBtn.addEventListener("click", () => {
+    calendarCursor = new Date(year, month + 1, 1);
+    renderCalendarView();
+  });
+
+  const todayBtn = document.createElement("button");
+  todayBtn.className = "calendar-today-btn";
+  todayBtn.textContent = "今日";
+  todayBtn.addEventListener("click", () => {
+    calendarCursor = new Date();
+    renderCalendarView();
+  });
+
+  header.appendChild(prevBtn);
+  header.appendChild(label);
+  header.appendChild(nextBtn);
+  header.appendChild(todayBtn);
+  panel.appendChild(header);
+
+  const cardsByDate = {};
+  project.columns.forEach((column) => {
+    column.cards.forEach((card) => {
+      if (card.dueDate) {
+        (cardsByDate[card.dueDate] = cardsByDate[card.dueDate] || []).push({ card, column });
+      }
+    });
+  });
+
+  const grid = document.createElement("div");
+  grid.className = "calendar-grid";
+
+  ["日", "月", "火", "水", "木", "金", "土"].forEach((d) => {
+    const cell = document.createElement("div");
+    cell.className = "calendar-weekday";
+    cell.textContent = d;
+    grid.appendChild(cell);
+  });
+
+  const firstDay = new Date(year, month, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  for (let i = 0; i < startOffset; i++) {
+    const cell = document.createElement("div");
+    cell.className = "calendar-cell empty";
+    grid.appendChild(cell);
+  }
+
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const cell = document.createElement("div");
+    cell.className = "calendar-cell" + (dateStr === todayStr ? " today" : "");
+
+    const num = document.createElement("div");
+    num.className = "calendar-date-num";
+    num.textContent = String(d);
+    cell.appendChild(num);
+
+    (cardsByDate[dateStr] || []).forEach(({ card, column }) => {
+      const chip = document.createElement("div");
+      chip.className = "calendar-card-chip";
+      if (card.priority) chip.classList.add(`priority-${card.priority}`);
+      chip.textContent = card.text;
+      chip.title = column.title;
+      chip.addEventListener("click", () => openCardModal(column.id, card.id));
+      cell.appendChild(chip);
+    });
+
+    grid.appendChild(cell);
+  }
+
+  panel.appendChild(grid);
+}
+
+// ---------- timeline view ----------
+function renderTimelineView() {
+  const project = getActiveProject();
+  const panel = viewPanels.timeline;
+  panel.innerHTML = "";
+  if (!project) return;
+
+  const items = [];
+  project.columns.forEach((column) => {
+    column.cards.forEach((card) => {
+      if (card.dueDate || card.startDate) items.push({ card, column });
+    });
+  });
+
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "table-empty";
+    empty.textContent = "開始日または期日が設定されたカードがありません";
+    panel.appendChild(empty);
+    return;
+  }
+
+  items.sort((a, b) => {
+    const da = a.card.startDate || a.card.dueDate;
+    const db = b.card.startDate || b.card.dueDate;
+    return da < db ? -1 : da > db ? 1 : 0;
+  });
+
+  const allDates = [];
+  items.forEach(({ card }) => {
+    if (card.startDate) allDates.push(card.startDate);
+    if (card.dueDate) allDates.push(card.dueDate);
+  });
+  const minDate = new Date(allDates.reduce((a, b) => (a < b ? a : b)));
+  const maxDate = new Date(allDates.reduce((a, b) => (a > b ? a : b)));
+  minDate.setDate(minDate.getDate() - 1);
+  maxDate.setDate(maxDate.getDate() + 1);
+  const totalMs = maxDate - minDate || 1;
+
+  const axis = document.createElement("div");
+  axis.className = "timeline-axis-labels";
+  const startLabel = document.createElement("span");
+  startLabel.textContent = minDate.toISOString().slice(0, 10);
+  const endLabel = document.createElement("span");
+  endLabel.textContent = maxDate.toISOString().slice(0, 10);
+  axis.appendChild(startLabel);
+  axis.appendChild(endLabel);
+  panel.appendChild(axis);
+
+  const container = document.createElement("div");
+  container.className = "timeline-container";
+
+  items.forEach(({ card, column }) => {
+    const row = document.createElement("div");
+    row.className = "timeline-row";
+
+    const label = document.createElement("div");
+    label.className = "timeline-label";
+    label.textContent = card.text;
+    label.title = column.title;
+
+    const track = document.createElement("div");
+    track.className = "timeline-track";
+
+    const startStr = card.startDate || card.dueDate;
+    const endStr = card.dueDate || card.startDate;
+    const startMs = new Date(startStr) - minDate;
+    const endMs = new Date(endStr) - minDate;
+    const leftPct = (startMs / totalMs) * 100;
+    const widthPct = Math.max(((endMs - startMs) / totalMs) * 100, 1.2);
+
+    const bar = document.createElement("div");
+    bar.className = "timeline-bar";
+    if (card.priority) bar.classList.add(`priority-${card.priority}`);
+    bar.style.left = leftPct + "%";
+    bar.style.width = widthPct + "%";
+    bar.title = `${startStr} 〜 ${endStr}`;
+    bar.addEventListener("click", () => openCardModal(column.id, card.id));
+
+    track.appendChild(bar);
+    row.appendChild(label);
+    row.appendChild(track);
+    container.appendChild(row);
+  });
+
+  panel.appendChild(container);
+}
+
+// ---------- dashboard view ----------
+function renderDashboardView() {
+  const project = getActiveProject();
+  const panel = viewPanels.dashboard;
+  panel.innerHTML = "";
+  if (!project) return;
+
+  let total = 0;
+  const byPriority = { high: 0, medium: 0, low: 0, none: 0 };
+  const byColumn = [];
+  let overdue = 0;
+  const upcoming = [];
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const in7 = new Date();
+  in7.setDate(in7.getDate() + 7);
+  const in7Str = in7.toISOString().slice(0, 10);
+
+  project.columns.forEach((column) => {
+    byColumn.push({ title: column.title, count: column.cards.length });
+    column.cards.forEach((card) => {
+      total++;
+      byPriority[card.priority || "none"]++;
+      if (card.dueDate) {
+        if (card.dueDate < todayStr) overdue++;
+        else if (card.dueDate <= in7Str) upcoming.push({ card, column });
+      }
+    });
+  });
+
+  function statTile(label, value, extraClass) {
+    const tile = document.createElement("div");
+    tile.className = "stat-tile" + (extraClass ? " " + extraClass : "");
+    const num = document.createElement("div");
+    num.className = "stat-number";
+    num.textContent = value;
+    const lab = document.createElement("div");
+    lab.className = "stat-label";
+    lab.textContent = label;
+    tile.appendChild(num);
+    tile.appendChild(lab);
+    return tile;
+  }
+
+  const statsRow = document.createElement("div");
+  statsRow.className = "dashboard-stats";
+  statsRow.appendChild(statTile("カード総数", total));
+  statsRow.appendChild(statTile("期限切れ", overdue, overdue > 0 ? "stat-danger" : ""));
+  statsRow.appendChild(statTile("7日以内に期限", upcoming.length));
+  statsRow.appendChild(statTile("高重要度", byPriority.high));
+  panel.appendChild(statsRow);
+
+  const columnSection = document.createElement("div");
+  columnSection.className = "dashboard-section";
+  const columnTitle = document.createElement("h3");
+  columnTitle.textContent = "リストごとのカード数";
+  columnSection.appendChild(columnTitle);
+
+  const maxCount = Math.max(1, ...byColumn.map((c) => c.count));
+  byColumn.forEach((c) => {
+    const barRow = document.createElement("div");
+    barRow.className = "dashboard-bar-row";
+
+    const label = document.createElement("div");
+    label.className = "dashboard-bar-label";
+    label.textContent = `${c.title} (${c.count})`;
+
+    const barWrap = document.createElement("div");
+    barWrap.className = "dashboard-bar-wrap";
+    const bar = document.createElement("div");
+    bar.className = "dashboard-bar";
+    bar.style.width = (c.count / maxCount) * 100 + "%";
+    barWrap.appendChild(bar);
+
+    barRow.appendChild(label);
+    barRow.appendChild(barWrap);
+    columnSection.appendChild(barRow);
+  });
+  panel.appendChild(columnSection);
+
+  const upcomingSection = document.createElement("div");
+  upcomingSection.className = "dashboard-section";
+  const upcomingTitle = document.createElement("h3");
+  upcomingTitle.textContent = "7日以内に期限を迎えるカード";
+  upcomingSection.appendChild(upcomingTitle);
+
+  if (!upcoming.length) {
+    const p = document.createElement("p");
+    p.className = "table-empty";
+    p.textContent = "該当するカードはありません";
+    upcomingSection.appendChild(p);
+  } else {
+    upcoming
+      .sort((a, b) => (a.card.dueDate < b.card.dueDate ? -1 : 1))
+      .forEach(({ card, column }) => {
+        const row = document.createElement("div");
+        row.className = "dashboard-upcoming-row";
+        row.addEventListener("click", () => openCardModal(column.id, card.id));
+        row.textContent = `${card.dueDate} - ${card.text} (${column.title})`;
+        upcomingSection.appendChild(row);
+      });
+  }
+  panel.appendChild(upcomingSection);
+}
+
 // ---------- card detail modal ----------
 const cardModal = document.getElementById("card-modal");
 const modalTitleInput = document.getElementById("modal-title");
 const modalCloseBtn = document.getElementById("modal-close-btn");
+const modalStartDate = document.getElementById("modal-start-date");
 const modalDueDate = document.getElementById("modal-due-date");
 const modalPriority = document.getElementById("modal-priority");
 const modalMembersEl = document.getElementById("modal-members");
@@ -448,11 +1008,12 @@ function showPendingFileUploading(file) {
 }
 
 let pendingCommentFile = null;
-
 let activeCardRef = null; // { columnId, cardId }
 
 function findCard(columnId, cardId) {
-  const column = state.columns.find((c) => c.id === columnId);
+  const project = getActiveProject();
+  if (!project) return null;
+  const column = project.columns.find((c) => c.id === columnId);
   if (!column) return null;
   const card = column.cards.find((c) => c.id === cardId);
   return card ? { column, card } : null;
@@ -478,6 +1039,7 @@ cardModal.addEventListener("click", (e) => {
 
 function populateModal(card) {
   modalTitleInput.value = card.text;
+  modalStartDate.value = card.startDate || "";
   modalDueDate.value = card.dueDate || "";
   modalPriority.value = card.priority || "";
   modalNotes.value = card.notes || "";
@@ -495,9 +1057,7 @@ function renderAttachments(attachments) {
       if (!activeCardRef) return;
       const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
       if (!found) return;
-      found.card.attachments = (found.card.attachments || []).filter(
-        (a) => a.id !== att.id
-      );
+      found.card.attachments = (found.card.attachments || []).filter((a) => a.id !== att.id);
       saveState();
       renderAttachments(found.card.attachments);
       if (att.path) {
@@ -634,6 +1194,14 @@ modalTitleInput.addEventListener("change", () => {
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.text = modalTitleInput.value.trim() || found.card.text;
+  saveState();
+});
+
+modalStartDate.addEventListener("change", () => {
+  if (!activeCardRef) return;
+  const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+  if (!found) return;
+  found.card.startDate = modalStartDate.value || null;
   saveState();
 });
 
@@ -780,7 +1348,9 @@ const trashEmptyBtn = document.getElementById("trash-empty-btn");
 const trashCountBadge = document.getElementById("trash-count");
 
 function moveCardToTrash(columnId, cardId) {
-  const column = state.columns.find((c) => c.id === columnId);
+  const project = getActiveProject();
+  if (!project) return;
+  const column = project.columns.find((c) => c.id === columnId);
   if (!column) return;
   const idx = column.cards.findIndex((c) => c.id === cardId);
   if (idx === -1) return;
@@ -788,6 +1358,7 @@ function moveCardToTrash(columnId, cardId) {
   state.trash = state.trash || [];
   state.trash.unshift({
     id: uid(),
+    projectId: project.id,
     card: removedCard,
     fromColumnId: columnId,
     deletedAt: new Date().toISOString(),
@@ -801,8 +1372,11 @@ function restoreFromTrash(trashItemId) {
   const idx = trash.findIndex((t) => t.id === trashItemId);
   if (idx === -1) return;
   const [item] = trash.splice(idx, 1);
+  const targetProject =
+    state.projects.find((p) => p.id === item.projectId) || getActiveProject();
+  if (!targetProject) return;
   const targetColumn =
-    state.columns.find((c) => c.id === item.fromColumnId) || state.columns[0];
+    targetProject.columns.find((c) => c.id === item.fromColumnId) || targetProject.columns[0];
   if (targetColumn) {
     targetColumn.cards.push(item.card);
   }
@@ -846,8 +1420,11 @@ function renderTrash() {
 
     const meta = document.createElement("div");
     meta.className = "trash-item-meta";
-    const col = state.columns.find((c) => c.id === item.fromColumnId);
+    const proj = state.projects.find((p) => p.id === item.projectId);
+    const col = proj ? proj.columns.find((c) => c.id === item.fromColumnId) : null;
     meta.textContent =
+      (proj ? proj.name : "不明なプロジェクト") +
+      " / " +
       (col ? col.title : "不明なリスト") +
       " ・ " +
       new Date(item.deletedAt).toLocaleString("ja-JP");

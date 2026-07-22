@@ -10,6 +10,129 @@ body {
   color: #172b4d;
 }
 
+/* ---------- app shell: drawer + main area ---------- */
+
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  align-items: stretch;
+}
+
+.project-drawer {
+  width: 220px;
+  flex: 0 0 220px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 16px 12px;
+  overflow-y: auto;
+  transition: width 0.15s ease, padding 0.15s ease, flex-basis 0.15s ease;
+}
+
+.project-drawer.closed {
+  width: 0;
+  flex: 0 0 0;
+  padding: 16px 0;
+  overflow: hidden;
+}
+
+.drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  white-space: nowrap;
+}
+
+.add-project-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.add-project-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.project-item:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.project-item.active {
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.project-name-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #fff;
+  font-size: 13px;
+  min-width: 0;
+  outline: none;
+  cursor: text;
+}
+
+.project-delete-btn {
+  border: none;
+  background: none;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.project-delete-btn:hover {
+  color: #fff;
+}
+
+.main-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-toggle-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 15px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+
+.drawer-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
 .app-header {
   display: flex;
   align-items: center;
@@ -22,13 +145,51 @@ body {
   color: #fff;
   font-size: 20px;
   margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- view tabs ---------- */
+
+.view-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 24px;
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.view-tab {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.view-tab:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.view-tab.active {
+  background: #fff;
+  color: #172b4d;
+  font-weight: 600;
+}
+
+.view-panel.hidden {
+  display: none;
 }
 
 .add-column-btn {
   background: rgba(255, 255, 255, 0.25);
   border: none;
   color: #fff;
-  padding: 8px 14px;
+  padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
@@ -69,7 +230,7 @@ body {
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: #fff;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
@@ -861,4 +1022,298 @@ body {
   background: none;
   cursor: pointer;
   color: #6b778c;
+}
+
+/* ---------- table view ---------- */
+
+#table-view {
+  padding: 20px 24px;
+  overflow-x: auto;
+}
+
+.kanban-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.kanban-table th,
+.kanban-table td {
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 13px;
+  border-bottom: 1px solid #eee;
+}
+
+.kanban-table th {
+  background: #f4f5f7;
+  color: #5e6c84;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.kanban-table tbody tr {
+  cursor: pointer;
+}
+
+.kanban-table tbody tr:hover {
+  background: #f4f5f7;
+}
+
+.table-empty {
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+  padding: 40px 0;
+  font-size: 14px;
+}
+
+/* ---------- calendar view ---------- */
+
+#calendar-view {
+  padding: 20px 24px;
+}
+
+.calendar-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.calendar-label {
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  min-width: 120px;
+}
+
+.calendar-nav-btn,
+.calendar-today-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.calendar-nav-btn:hover,
+.calendar-today-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.calendar-weekday {
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  padding: 4px 0;
+}
+
+.calendar-cell {
+  background: #fff;
+  border-radius: 6px;
+  min-height: 90px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.calendar-cell.empty {
+  background: transparent;
+}
+
+.calendar-cell.today {
+  outline: 2px solid #5067c5;
+}
+
+.calendar-date-num {
+  font-size: 12px;
+  font-weight: 600;
+  color: #5e6c84;
+}
+
+.calendar-card-chip {
+  background: #dfe1e6;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-card-chip:hover {
+  filter: brightness(0.95);
+}
+
+/* ---------- timeline view ---------- */
+
+#timeline-view {
+  padding: 20px 24px;
+}
+
+.timeline-axis-labels {
+  display: flex;
+  justify-content: space-between;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.timeline-container {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.timeline-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.timeline-label {
+  width: 160px;
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timeline-track {
+  position: relative;
+  flex: 1;
+  height: 22px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+}
+
+.timeline-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 10px;
+  background: #5067c5;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.timeline-bar:hover {
+  filter: brightness(1.1);
+}
+
+/* ---------- dashboard view ---------- */
+
+#dashboard-view {
+  padding: 20px 24px;
+}
+
+.dashboard-stats {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.stat-tile {
+  background: #fff;
+  border-radius: 8px;
+  padding: 14px 18px;
+  min-width: 130px;
+  text-align: center;
+}
+
+.stat-tile.stat-danger .stat-number {
+  color: #b04632;
+}
+
+.stat-number {
+  font-size: 26px;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #6b778c;
+  margin-top: 2px;
+}
+
+.dashboard-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+
+.dashboard-section h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #172b4d;
+}
+
+.dashboard-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.dashboard-bar-label {
+  width: 160px;
+  flex-shrink: 0;
+  color: #5e6c84;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-bar-wrap {
+  flex: 1;
+  background: #ebecf0;
+  border-radius: 4px;
+  height: 12px;
+  overflow: hidden;
+}
+
+.dashboard-bar {
+  height: 100%;
+  background: #5067c5;
+  border-radius: 4px;
+}
+
+.dashboard-upcoming-row {
+  padding: 6px 0;
+  font-size: 13px;
+  color: #172b4d;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+
+.dashboard-upcoming-row:hover {
+  color: #5067c5;
 }
