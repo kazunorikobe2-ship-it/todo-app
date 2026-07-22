@@ -792,6 +792,8 @@ function renderProjectList() {
           message: `「${project.name}」とその中のすべてのリスト・カードが完全に削除されます。この操作は元に戻せません。`,
           okLabel: "削除する",
           onConfirm: () => {
+            (project.columns || []).forEach((col) => (col.cards || []).forEach((c) => deleteCardStorageFiles(c)));
+            (project.trash || []).forEach((item) => deleteCardStorageFiles(item.card));
             projectsCollection
               .doc(project.id)
               .delete()
@@ -2456,9 +2458,38 @@ function restoreFromTrash(trashItemId) {
   saveProject(project);
 }
 
+// Collects every Storage path referenced by a card (card attachments, cover
+// image, and comment attachments) and deletes them from Firebase Storage.
+// Called when a card is permanently removed from the trash so files don't
+// linger as orphaned storage usage after the card itself is gone.
+function deleteCardStorageFiles(card) {
+  if (!card) return;
+  const paths = [];
+
+  (card.attachments || []).forEach((att) => {
+    if (att && att.path) paths.push(att.path);
+  });
+  if (card.cover && card.cover.type === "image" && card.cover.path) {
+    paths.push(card.cover.path);
+  }
+  (card.comments || []).forEach((c) => {
+    if (c && c.attachment && c.attachment.path) paths.push(c.attachment.path);
+  });
+
+  paths.forEach((path) => {
+    storage
+      .ref()
+      .child(path)
+      .delete()
+      .catch(() => {});
+  });
+}
+
 function permanentlyDeleteTrashItem(trashItemId) {
   const project = getActiveProject();
   if (!project || !canEditProject(project)) return;
+  const item = (project.trash || []).find((t) => t.id === trashItemId);
+  if (item) deleteCardStorageFiles(item.card);
   project.trash = (project.trash || []).filter((t) => t.id !== trashItemId);
   saveProject(project);
 }
@@ -2555,6 +2586,7 @@ trashEmptyBtn.addEventListener("click", () => {
     message: `ゴミ箱内の${count}件のカードをすべて完全に削除します。この操作は元に戻せません。`,
     okLabel: "すべて完全に削除",
     onConfirm: () => {
+      (project.trash || []).forEach((item) => deleteCardStorageFiles(item.card));
       project.trash = [];
       saveProject(project);
     },
