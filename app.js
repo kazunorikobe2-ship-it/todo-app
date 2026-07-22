@@ -84,26 +84,35 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB (Free plan's per-file cap)
 // managing other people's projects/members.
 const ADMIN_EMAIL = "kazunorikobe2@gmail.com";
 
+// Fixed per-file cap, the same for every plan — only the TOTAL storage quota
+// (sum of every attachment/cover/comment-file across all of an owner's
+// projects) differs by plan. See maxTotalMB below.
+const PER_FILE_MAX_MB = 5;
+
+// Once an owner's remaining total-storage headroom drops to this many MB or
+// below, a warning banner is shown in the header.
+const STORAGE_ALERT_THRESHOLD_MB = 10;
+
 const PLAN_LIMITS = {
   free: {
     label: "Free",
     maxProjects: 10,
     views: ["board", "table"],
-    maxFileSizeMB: 5,
+    maxTotalMB: 5,
     publicShare: false,
   },
   pro: {
     label: "Pro",
     maxProjects: Infinity,
     views: ["board", "table", "calendar", "timeline", "dashboard"],
-    maxFileSizeMB: 150,
+    maxTotalMB: 150,
     publicShare: false,
   },
   business: {
     label: "Business",
     maxProjects: Infinity,
     views: ["board", "table", "calendar", "timeline", "dashboard"],
-    maxFileSizeMB: Infinity,
+    maxTotalMB: Infinity,
     publicShare: true,
   },
 };
@@ -117,7 +126,7 @@ function planLimitsFor(planKey) {
 }
 
 // The plan that governs a given PROJECT's available features (view locks,
-// file size cap, public share eligibility) — based on its owner.
+// total storage quota, public share eligibility) — based on its owner.
 function effectivePlanForProject(project) {
   if (!project) return "free";
   if (project.ownerEmail === ADMIN_EMAIL) return "business";
@@ -131,9 +140,71 @@ function effectivePlanForCurrentUser() {
   return (userProfile && userProfile.plan) || "free";
 }
 
+// Per-file cap is fixed regardless of plan (admin is still unrestricted).
 function maxFileSizeBytesForProject(project) {
-  const mb = planLimitsFor(effectivePlanForProject(project)).maxFileSizeMB;
+  if (project && project.ownerEmail === ADMIN_EMAIL) return Infinity;
+  return PER_FILE_MAX_MB * 1024 * 1024;
+}
+
+// Total attachment storage quota across every project a given owner owns.
+function maxTotalAttachmentBytesForProject(project) {
+  if (project && project.ownerEmail === ADMIN_EMAIL) return Infinity;
+  const mb = planLimitsFor(effectivePlanForProject(project)).maxTotalMB;
   return mb === Infinity ? Infinity : mb * 1024 * 1024;
+}
+
+// Sums the size of every attachment on a card: file attachments, the single
+// attachment a comment can carry, and an image cover (color covers have no
+// file). Used to compute an owner's total storage usage.
+function attachmentBytesForCard(card) {
+  let total = 0;
+  (card.attachments || []).forEach((a) => {
+    total += a.size || 0;
+  });
+  (card.comments || []).forEach((c) => {
+    if (c && c.attachment) total += c.attachment.size || 0;
+  });
+  if (card.cover && card.cover.type === "image" && card.cover.size) {
+    total += card.cover.size;
+  }
+  return total;
+}
+
+// Total bytes currently used across every project owned by `ownerEmail` that
+// this client has loaded (live cards + trash, since trashed files still
+// occupy Storage until permanently deleted). Only counts projects the
+// current signed-in user can see — see the "known limitation" note in
+// updateStorageAlert().
+function totalAttachmentBytesForOwner(ownerEmail) {
+  if (!ownerEmail) return 0;
+  let total = 0;
+  state.projects.forEach((p) => {
+    if (p.ownerEmail !== ownerEmail) return;
+    (p.columns || []).forEach((column) => {
+      (column.cards || []).forEach((card) => {
+        total += attachmentBytesForCard(card);
+      });
+    });
+    (p.trash || []).forEach((item) => {
+      if (item && item.card) total += attachmentBytesForCard(item.card);
+    });
+  });
+  return total;
+}
+
+// Blocks an upload that would push the project owner's total attachment
+// storage past their plan's quota (instead of silently deleting old files to
+// make room). Shows an alert and returns false if blocked.
+function blockedByTotalQuota(project, fileSize) {
+  if (!project) return false;
+  const totalLimit = maxTotalAttachmentBytesForProject(project);
+  if (totalLimit === Infinity) return false;
+  const used = totalAttachmentBytesForOwner(project.ownerEmail);
+  if (used + fileSize <= totalLimit) return false;
+  alert(
+    `保存容量の上限(合計${formatMaxSize(totalLimit)})に達するため、これ以上ファイルを追加できません。不要な添付ファイルを削除するか、プランをアップグレードしてください。`
+  );
+  return true;
 }
 
 function formatMaxSize(bytes) {
@@ -486,6 +557,7 @@ function renderPublicShareError() {
 function renderAll() {
   renderProjectList();
   updatePlanNote();
+  updateStorageAlert();
   const project = getActiveProject();
   projectTitleEl.textContent = "📋 " + (project ? project.name : "Kanban Board");
   applyDrawerState();
@@ -738,6 +810,40 @@ function updatePlanNote() {
 }
 
 planNoteEl.addEventListener("click", () => openPlansModal());
+
+// ---------- storage quota header alert ----------
+const storageAlertBannerEl = document.getElementById("storage-alert-banner");
+const storageAlertTextEl = document.getElementById("storage-alert-text");
+const storageAlertLinkBtn = document.getElementById("storage-alert-link");
+
+// Shows a header warning once the signed-in user's total attachment storage
+// (as OWNER, summed across every project they own) gets within
+// STORAGE_ALERT_THRESHOLD_MB of their plan's total quota. Admin and
+// Business (unlimited quota) never trigger this.
+function updateStorageAlert() {
+  if (!currentUser) {
+    storageAlertBannerEl.classList.add("hidden");
+    return;
+  }
+  const limitBytes = maxTotalAttachmentBytesForProject({ ownerEmail: currentUser.email });
+  if (limitBytes === Infinity) {
+    storageAlertBannerEl.classList.add("hidden");
+    return;
+  }
+  const usedBytes = totalAttachmentBytesForOwner(currentUser.email);
+  const remainingBytes = limitBytes - usedBytes;
+  const thresholdBytes = STORAGE_ALERT_THRESHOLD_MB * 1024 * 1024;
+
+  if (remainingBytes <= thresholdBytes) {
+    storageAlertTextEl.textContent =
+      `添付ファイルの容量が残り${formatMaxSize(Math.max(0, remainingBytes))}です(上限${formatMaxSize(limitBytes)})。上限に達すると新しい添付ができなくなります。`;
+    storageAlertBannerEl.classList.remove("hidden");
+  } else {
+    storageAlertBannerEl.classList.add("hidden");
+  }
+}
+
+storageAlertLinkBtn.addEventListener("click", () => openPlansModal());
 
 drawerToggleBtn.addEventListener("click", () => {
   drawerOpen = !drawerOpen;
@@ -2441,6 +2547,7 @@ modalCoverImageInput.addEventListener("change", async () => {
     alert(`ファイルサイズは${formatMaxSize(coverLimit)}までです。`);
     return;
   }
+  if (blockedByTotalQuota(coverProject, file.size)) return;
   const targetColumnId = activeCardRef.columnId;
   const targetCardId = activeCardRef.cardId;
 
@@ -2451,7 +2558,7 @@ modalCoverImageInput.addEventListener("change", async () => {
     const found = findCard(targetColumnId, targetCardId);
     if (!found) return;
     const oldCover = found.card.cover;
-    found.card.cover = { type: "image", url: uploaded.url, path: uploaded.path };
+    found.card.cover = { type: "image", url: uploaded.url, path: uploaded.path, size: uploaded.size };
     saveProject(found.project);
     if (activeCardRef && activeCardRef.cardId === targetCardId) {
       renderCoverBanner(found.card.cover);
@@ -2509,7 +2616,12 @@ function populateModal(card) {
   renderPendingFile();
 
   const project = getActiveProject();
-  modalAttachmentHintEl.textContent = "1ファイルあたり" + formatMaxSize(maxFileSizeBytesForProject(project)) + "まで";
+  const totalLimit = maxTotalAttachmentBytesForProject(project);
+  let hint = "1ファイルあたり" + formatMaxSize(maxFileSizeBytesForProject(project)) + "まで";
+  if (totalLimit !== Infinity) {
+    hint += `(合計${formatMaxSize(totalLimit)}まで)`;
+  }
+  modalAttachmentHintEl.textContent = hint;
 }
 
 function renderAttachments(attachments) {
@@ -2573,6 +2685,7 @@ modalAttachmentInput.addEventListener("change", async () => {
     alert(`ファイルサイズは${formatMaxSize(attachLimit)}までです。`);
     return;
   }
+  if (blockedByTotalQuota(attachProject, file.size)) return;
   const targetColumnId = activeCardRef.columnId;
   const targetCardId = activeCardRef.cardId;
 
@@ -2607,6 +2720,7 @@ modalCommentFileInput.addEventListener("change", () => {
     alert(`ファイルサイズは${formatMaxSize(commentLimit)}までです。`);
     return;
   }
+  if (blockedByTotalQuota(commentProject, file.size)) return;
   pendingCommentFile = file;
   renderPendingFile();
 });
