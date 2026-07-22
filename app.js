@@ -2615,11 +2615,29 @@ function populateModal(card) {
   pendingCommentFile = null;
   renderPendingFile();
 
+  updateAttachmentHint();
+}
+
+// Formats a byte count as a whole-number MB string (no decimal place) —
+// used for the "remaining capacity" figure, where sub-MB precision isn't
+// useful and just adds visual noise.
+function formatWholeMB(bytes) {
+  if (bytes === Infinity) return "無制限";
+  return Math.max(0, Math.round(bytes / (1024 * 1024))) + "MB";
+}
+
+// Refreshes the "1ファイルあたり◯MBまで(残り◯MB)" hint under the attachment
+// button. Called both when the modal first opens and whenever the modal's
+// live Firestore sync fires (so the remaining figure stays accurate as
+// files are added/removed without needing to reopen the card).
+function updateAttachmentHint() {
   const project = getActiveProject();
   const totalLimit = maxTotalAttachmentBytesForProject(project);
   let hint = "1ファイルあたり" + formatMaxSize(maxFileSizeBytesForProject(project)) + "まで";
   if (totalLimit !== Infinity) {
-    hint += `(合計${formatMaxSize(totalLimit)}まで)`;
+    const used = totalAttachmentBytesForOwner(project.ownerEmail);
+    const remaining = Math.max(0, totalLimit - used);
+    hint += `(残り${formatWholeMB(remaining)})`;
   }
   modalAttachmentHintEl.textContent = hint;
 }
@@ -2900,6 +2918,7 @@ function syncModalIfOpen() {
   renderAttachments(found.card.attachments || []);
   renderCoverBanner(found.card.cover || null);
   renderCoverSwatches(found.card.cover || null);
+  updateAttachmentHint();
 }
 
 // ---------- generic confirm modal ----------
