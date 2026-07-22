@@ -357,11 +357,17 @@ body {
   background: rgba(255, 255, 255, 0.15);
 }
 
+/* header button */
+
+.header-right button {
+    transition: 0.2s ease-in-out;
+}
+
 .logout-btn {
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: #fff;
-  padding: 6px 12px;
+  padding: 7px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
@@ -376,7 +382,7 @@ body {
   background: rgba(255, 255, 255, 0.15);
   border: none;
   color: #fff;
-  padding: 6px 12px;
+  padding: 9px 12px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 14px;
