@@ -61,11 +61,28 @@
             <label>備考</label>
             <textarea id="modal-notes" rows="5" placeholder="備考を入力..."></textarea>
           </div>
+
+          <div class="modal-field">
+            <label>添付ファイル</label>
+            <div id="modal-attachments" class="attachment-list"></div>
+            <label class="file-input-label">
+              📎 ファイルを選択
+              <input type="file" id="modal-attachment-input" class="file-input-hidden" />
+            </label>
+            <p class="field-hint">1ファイルあたり5MBまで</p>
+          </div>
         </div>
 
         <div class="modal-right">
           <div class="modal-right-header">💬 コメントとアクティビティ</div>
-          <input type="text" id="modal-comment-input" class="comment-input-top" placeholder="コメントを入力してEnter" />
+          <div id="modal-comment-pending-file" class="pending-file hidden"></div>
+          <div class="comment-input-row">
+            <input type="text" id="modal-comment-input" class="comment-input-top" placeholder="コメントを入力してEnter" />
+            <label class="attach-icon-btn" title="ファイルを添付">
+              📎
+              <input type="file" id="modal-comment-file-input" class="file-input-hidden" />
+            </label>
+          </div>
           <div id="modal-comments" class="comment-list"></div>
         </div>
       </div>
@@ -100,6 +117,7 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

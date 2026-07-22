@@ -14,6 +14,7 @@ Trello風のカンバンボードアプリ。プレーンなHTML/CSS/JavaScript 
   - コメント(投稿者名・日時つき)
 - Firestoreでリアルタイム共同編集(複数ブラウザ・複数人で同期)
 - Googleアカウントでのログイン(未ログインだとボードは閲覧・編集不可)
+- カード・コメントへのファイル添付(1ファイル5MBまで、画像は小さいサムネイル表示)
 
 ## セットアップ
 
@@ -35,6 +36,24 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /kanban/{document=**} {
       allow read, write: if request.auth != null;
+    }
+  }
+}
+```
+
+### Firebase Storage(ファイル添付)
+
+Firebaseコンソール → Storage → 「始める」でCloud Storageを有効化する(まだの場合)。
+
+Storage → Rules タブで以下を貼って公開する。ログイン済みユーザーのみ読み書き可能、かつ1ファイル5MBまでという制限をルール側でも強制している:
+
+```
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /kanban/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.resource.size < 5 * 1024 * 1024;
     }
   }
 }

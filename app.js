@@ -12,7 +12,94 @@ function makeCard(text) {
     notes: "",
     members: [],
     comments: [],
+    attachments: [],
   };
+}
+
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+
+function formatFileSize(bytes) {
+  if (bytes === null || bytes === undefined) return "";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+async function uploadFile(file, pathPrefix) {
+  const fileId = uid();
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `${pathPrefix}/${fileId}-${safeName}`;
+  const ref = storage.ref().child(path);
+  await ref.put(file, { contentType: file.type || undefined });
+  const url = await ref.getDownloadURL();
+  return {
+    id: fileId,
+    name: file.name,
+    type: file.type || "",
+    size: file.size,
+    url,
+    path,
+  };
+}
+
+function buildAttachmentChip(attachment, onRemove) {
+  const wrap = document.createElement("div");
+  wrap.className = "attachment-item";
+
+  const link = document.createElement("a");
+  link.href = attachment.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.style.display = "flex";
+  link.style.alignItems = "center";
+  link.style.gap = "6px";
+  link.style.textDecoration = "none";
+  link.style.color = "inherit";
+  link.style.minWidth = "0";
+
+  if (attachment.type && attachment.type.startsWith("image/")) {
+    const img = document.createElement("img");
+    img.src = attachment.url;
+    img.className = "attachment-thumb";
+    img.alt = attachment.name;
+    link.appendChild(img);
+  } else {
+    const icon = document.createElement("div");
+    icon.className = "attachment-icon";
+    icon.textContent = "📄";
+    link.appendChild(icon);
+  }
+
+  const info = document.createElement("div");
+  info.className = "attachment-info";
+
+  const nameEl = document.createElement("span");
+  nameEl.className = "attachment-name";
+  nameEl.textContent = attachment.name;
+
+  const sizeEl = document.createElement("span");
+  sizeEl.className = "attachment-size";
+  sizeEl.textContent = formatFileSize(attachment.size);
+
+  info.appendChild(nameEl);
+  info.appendChild(sizeEl);
+  link.appendChild(info);
+  wrap.appendChild(link);
+
+  if (onRemove) {
+    const rm = document.createElement("button");
+    rm.className = "attachment-remove";
+    rm.textContent = "✕";
+    rm.title = "削除";
+    rm.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onRemove();
+    });
+    wrap.appendChild(rm);
+  }
+
+  return wrap;
 }
 
 function defaultState() {
@@ -222,6 +309,12 @@ function renderBoard() {
         b.textContent = "💬 " + card.comments.length;
         badges.appendChild(b);
       }
+      if (card.attachments && card.attachments.length) {
+        const b = document.createElement("span");
+        b.className = "badge attachment-badge";
+        b.textContent = "📎 " + card.attachments.length;
+        badges.appendChild(b);
+      }
       if (badges.children.length) cardEl.appendChild(badges);
 
       const delBtn = document.createElement("button");
@@ -326,6 +419,12 @@ const modalMemberInput = document.getElementById("modal-member-input");
 const modalNotes = document.getElementById("modal-notes");
 const modalCommentsEl = document.getElementById("modal-comments");
 const modalCommentInput = document.getElementById("modal-comment-input");
+const modalAttachmentsEl = document.getElementById("modal-attachments");
+const modalAttachmentInput = document.getElementById("modal-attachment-input");
+const modalCommentFileInput = document.getElementById("modal-comment-file-input");
+const pendingFileEl = document.getElementById("modal-comment-pending-file");
+
+let pendingCommentFile = null;
 
 let activeCardRef = null; // { columnId, cardId }
 
@@ -361,7 +460,96 @@ function populateModal(card) {
   modalNotes.value = card.notes || "";
   renderMembers(card.members || []);
   renderComments(card.comments || []);
+  renderAttachments(card.attachments || []);
+  pendingCommentFile = null;
+  renderPendingFile();
 }
+
+function renderAttachments(attachments) {
+  modalAttachmentsEl.innerHTML = "";
+  (attachments || []).forEach((att) => {
+    const chip = buildAttachmentChip(att, () => {
+      if (!activeCardRef) return;
+      const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+      if (!found) return;
+      found.card.attachments = (found.card.attachments || []).filter(
+        (a) => a.id !== att.id
+      );
+      saveState();
+      renderAttachments(found.card.attachments);
+      if (att.path) {
+        storage
+          .ref()
+          .child(att.path)
+          .delete()
+          .catch(() => {});
+      }
+    });
+    modalAttachmentsEl.appendChild(chip);
+  });
+}
+
+function renderPendingFile() {
+  pendingFileEl.innerHTML = "";
+  if (!pendingCommentFile) {
+    pendingFileEl.classList.add("hidden");
+    return;
+  }
+  pendingFileEl.classList.remove("hidden");
+
+  const label = document.createElement("span");
+  label.textContent =
+    "📎 " + pendingCommentFile.name + " (" + formatFileSize(pendingCommentFile.size) + ")";
+
+  const rm = document.createElement("button");
+  rm.textContent = "✕";
+  rm.addEventListener("click", () => {
+    pendingCommentFile = null;
+    renderPendingFile();
+  });
+
+  pendingFileEl.appendChild(label);
+  pendingFileEl.appendChild(rm);
+}
+
+modalAttachmentInput.addEventListener("change", async () => {
+  const file = modalAttachmentInput.files[0];
+  modalAttachmentInput.value = "";
+  if (!file || !activeCardRef) return;
+  if (file.size > MAX_FILE_SIZE) {
+    alert("ファイルサイズは5MBまでです。");
+    return;
+  }
+  const targetColumnId = activeCardRef.columnId;
+  const targetCardId = activeCardRef.cardId;
+
+  try {
+    const attachment = await uploadFile(file, `kanban/cards/${targetCardId}`);
+    const found = findCard(targetColumnId, targetCardId);
+    if (!found) return;
+    found.card.attachments = found.card.attachments || [];
+    found.card.attachments.push(attachment);
+    saveState();
+    if (activeCardRef && activeCardRef.cardId === targetCardId) {
+      renderAttachments(found.card.attachments);
+    }
+  } catch (err) {
+    console.error("upload failed", err);
+    alert("ファイルのアップロードに失敗しました: " + err.message);
+  }
+});
+
+modalCommentFileInput.addEventListener("change", () => {
+  const file = modalCommentFileInput.files[0];
+  modalCommentFileInput.value = "";
+  if (!file) return;
+  if (file.size > MAX_FILE_SIZE) {
+    alert("ファイルサイズは5MBまでです。");
+    return;
+  }
+  pendingCommentFile = file;
+  renderPendingFile();
+});
 
 function renderMembers(members) {
   modalMembersEl.innerHTML = "";
@@ -401,7 +589,15 @@ function renderComments(comments) {
     text.textContent = c.text;
 
     item.appendChild(meta);
-    item.appendChild(text);
+    if (c.text) item.appendChild(text);
+
+    if (c.attachment) {
+      const attWrap = document.createElement("div");
+      attWrap.className = "comment-attachment";
+      attWrap.appendChild(buildAttachmentChip(c.attachment));
+      item.appendChild(attWrap);
+    }
+
     modalCommentsEl.appendChild(item);
   });
   modalCommentsEl.scrollTop = modalCommentsEl.scrollHeight;
@@ -454,25 +650,48 @@ modalMemberInput.addEventListener("keydown", (e) => {
   modalMemberInput.value = "";
 });
 
-modalCommentInput.addEventListener("keydown", (e) => {
+modalCommentInput.addEventListener("keydown", async (e) => {
   if (e.key !== "Enter") return;
   e.preventDefault();
   if (!activeCardRef) return;
   const text = modalCommentInput.value.trim();
-  if (!text) return;
+  if (!text && !pendingCommentFile) return;
   if (!currentUser) return;
-  const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+
+  const targetColumnId = activeCardRef.columnId;
+  const targetCardId = activeCardRef.cardId;
+  const fileToUpload = pendingCommentFile;
+
+  modalCommentInput.value = "";
+  pendingCommentFile = null;
+  renderPendingFile();
+
+  let attachment = null;
+  if (fileToUpload) {
+    try {
+      attachment = await uploadFile(fileToUpload, `kanban/comments/${targetCardId}`);
+    } catch (err) {
+      console.error("upload failed", err);
+      alert("ファイルのアップロードに失敗しました: " + err.message);
+      return;
+    }
+  }
+
+  const found = findCard(targetColumnId, targetCardId);
   if (!found) return;
   found.card.comments = found.card.comments || [];
-  found.card.comments.push({
+  const comment = {
     id: uid(),
     author: currentUser.displayName || currentUser.email || "匿名",
     text,
     createdAt: new Date().toISOString(),
-  });
+  };
+  if (attachment) comment.attachment = attachment;
+  found.card.comments.push(comment);
   saveState();
-  renderComments(found.card.comments);
-  modalCommentInput.value = "";
+  if (activeCardRef && activeCardRef.cardId === targetCardId) {
+    renderComments(found.card.comments);
+  }
 });
 
 function syncModalIfOpen() {
@@ -485,6 +704,7 @@ function syncModalIfOpen() {
   // Only refresh the parts that are safe to update live (avoids wiping focused inputs)
   renderComments(found.card.comments || []);
   renderMembers(found.card.members || []);
+  renderAttachments(found.card.attachments || []);
 }
 
 // ---------- generic confirm modal ----------

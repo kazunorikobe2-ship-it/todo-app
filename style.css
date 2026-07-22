@@ -663,3 +663,155 @@ body {
   font-size: 14px;
   white-space: pre-wrap;
 }
+
+.comment-attachment {
+  margin-top: 6px;
+}
+
+/* ---------- attachments ---------- */
+
+.attachment-badge {
+  background: #eee3ff;
+  color: #5b3aa0;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f4f5f7;
+  border-radius: 6px;
+  padding: 4px 6px;
+  max-width: 220px;
+}
+
+.attachment-thumb {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.attachment-icon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #dfe1e6;
+  border-radius: 4px;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.attachment-info {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.attachment-name {
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #172b4d;
+  font-size: 12px;
+}
+
+.attachment-size {
+  color: #6b778c;
+  font-size: 10px;
+}
+
+.attachment-remove {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #6b778c;
+  font-size: 12px;
+  flex-shrink: 0;
+  padding: 2px 4px;
+}
+
+.attachment-remove:hover {
+  color: #b04632;
+}
+
+.file-input-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px dashed #b9c0ca;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #5e6c84;
+}
+
+.file-input-label:hover {
+  background: #f4f5f7;
+}
+
+.file-input-hidden {
+  display: none;
+}
+
+.field-hint {
+  font-size: 11px;
+  color: #8993a4;
+  margin: 4px 0 0;
+}
+
+.comment-input-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.comment-input-row .comment-input-top {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.attach-icon-btn {
+  cursor: pointer;
+  font-size: 16px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.attach-icon-btn:hover {
+  background: #eef0f3;
+}
+
+.pending-file {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: #eef2ff;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.pending-file button {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #6b778c;
+}
