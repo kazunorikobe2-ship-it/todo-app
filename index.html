@@ -53,24 +53,44 @@
   </div>
 
   <!-- ログインモーダル（未ログインだとボードは操作不可） -->
-  <div id="auth-modal" class="modal-overlay">
-    <div class="modal-content small auth-content">
-      <h2>ログインしてください</h2>
-      <p class="modal-sub">Googleアカウント、またはメールアドレスでログインすると、ボードの閲覧・編集・コメントができます</p>
-      <button id="google-login-btn" class="google-btn">Googleでログイン</button>
+  <div id="auth-modal" class="auth-page">
+    <div class="auth-visual">
+      <div class="auth-visual-overlay">
+        <div class="auth-brand">
+          <span class="auth-brand-icon">📋</span>
+          <span class="auth-brand-name">Kanban Board</span>
+        </div>
+        <div class="auth-visual-bottom">
+          <h1>チームのタスクを、<br />ひとつのボードで。</h1>
+          <p>
+            プロジェクトの進行状況をリアルタイムに共有し、リスト・カード・コメント・添付ファイルでチームのコラボレーションを加速します。
+          </p>
+          <div class="auth-visual-footer">© Kanban Board</div>
+        </div>
+      </div>
+    </div>
 
-      <div class="auth-divider"><span>または</span></div>
+    <div class="auth-form-side">
+      <div class="auth-form-inner">
+        <div class="auth-badge">🔑 ログイン</div>
+        <h2>ログイン</h2>
+        <p class="modal-sub">Googleアカウント、またはメールアドレスでログインすると、ボードの閲覧・編集・コメントができます</p>
 
-      <div class="email-auth-form">
-        <input type="email" id="email-auth-email" placeholder="メールアドレス" />
-        <input type="password" id="email-auth-password" placeholder="パスワード(6文字以上)" />
-        <p id="email-auth-error" class="auth-error hidden"></p>
-        <button id="email-auth-submit-btn" class="confirm-add full-width">ログイン</button>
-        <p class="auth-toggle-row">
-          <span id="email-auth-toggle-text">アカウントをお持ちでないですか？</span>
-          <button id="email-auth-toggle-btn" class="link-btn">新規登録</button>
-        </p>
-        <button id="email-auth-forgot-btn" class="link-btn small">パスワードをお忘れですか？</button>
+        <button id="google-login-btn" class="google-btn">Googleでログイン</button>
+
+        <div class="auth-divider"><span>または</span></div>
+
+        <div class="email-auth-form">
+          <input type="email" id="email-auth-email" placeholder="メールアドレス" />
+          <input type="password" id="email-auth-password" placeholder="パスワード(6文字以上)" />
+          <p id="email-auth-error" class="auth-error hidden"></p>
+          <button id="email-auth-submit-btn" class="confirm-add full-width">ログイン</button>
+          <p class="auth-toggle-row">
+            <span id="email-auth-toggle-text">アカウントをお持ちでないですか？</span>
+            <button id="email-auth-toggle-btn" class="link-btn">新規登録</button>
+          </p>
+          <button id="email-auth-forgot-btn" class="link-btn small">パスワードをお忘れですか？</button>
+        </div>
       </div>
     </div>
   </div>
