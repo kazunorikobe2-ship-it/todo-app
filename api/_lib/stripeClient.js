@@ -8,13 +8,13 @@ function getStripe() {
   if (!key) {
     throw new Error("STRIPE_SECRET_KEY environment variable is not set");
   }
-  // No pinned apiVersion here on purpose: this Stripe account is on a newer
-  // API generation (e.g. Managed Payments/sandbox accounts default to
-  // "2025-03-31.basil" or later) and pinning an older version string here
-  // caused a hard incompatibility error. Omitting it makes every request use
-  // whatever default API version is configured for the account in the
-  // Stripe Dashboard, avoiding this class of mismatch entirely.
-  stripeInstance = new Stripe(key);
+  // The installed `stripe` npm package itself bakes in a default API version
+  // (matching its own release date) and sends that unless we override it —
+  // simply omitting this option does NOT mean "no version pinned", it means
+  // "use the SDK's built-in default", which turned out to be the old
+  // "2024-06-20" version incompatible with this account's Managed Payments
+  // feature. Pin explicitly to the version Stripe's own error message named.
+  stripeInstance = new Stripe(key, { apiVersion: "2025-03-31.basil" });
   return stripeInstance;
 }
 
