@@ -139,6 +139,37 @@ function buildAttachmentChip(attachment, onRemove) {
   return wrap;
 }
 
+// ---------- avatars ----------
+const AVATAR_COLORS = [
+  "#5067c5",
+  "#0079bf",
+  "#61bd4f",
+  "#ff9f1a",
+  "#eb5a46",
+  "#c377e0",
+  "#00c2e0",
+  "#51e898",
+  "#ff78cb",
+  "#344563",
+];
+
+function avatarColorFor(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function buildAvatar(email, sizeClass) {
+  const el = document.createElement("div");
+  el.className = "avatar-circle" + (sizeClass ? " " + sizeClass : "");
+  el.style.background = avatarColorFor(email || "?");
+  el.textContent = (email || "?").trim().charAt(0).toUpperCase();
+  el.title = email || "";
+  return el;
+}
+
 function priorityLabel(p) {
   if (p === "high") return "高";
   if (p === "medium") return "中";
@@ -317,6 +348,7 @@ function renderAll() {
   const editable = canEditProject(project);
   addColumnBtn.classList.toggle("hidden", !editable);
   trashBtn.classList.toggle("hidden", !currentUser || !editable);
+  renderMemberAvatars();
 
   if (currentView === "board") renderBoard();
   else if (currentView === "table") renderTableView();
@@ -335,6 +367,37 @@ const googleLoginBtn = document.getElementById("google-login-btn");
 const userInfoEl = document.getElementById("user-info");
 const logoutBtn = document.getElementById("logout-btn");
 const trashBtn = document.getElementById("trash-btn");
+const memberAvatarsEl = document.getElementById("member-avatars");
+
+memberAvatarsEl.addEventListener("click", () => {
+  const project = getActiveProject();
+  if (project) openMembersModal(project.id);
+});
+
+function renderMemberAvatars() {
+  const project = getActiveProject();
+  memberAvatarsEl.innerHTML = "";
+  if (!currentUser || !project) {
+    memberAvatarsEl.classList.add("hidden");
+    return;
+  }
+  memberAvatarsEl.classList.remove("hidden");
+
+  const ordered = [project.ownerEmail, ...(project.editors || []), ...(project.viewers || [])].filter(
+    (email, idx, arr) => email && arr.indexOf(email) === idx
+  );
+
+  const maxShown = 5;
+  ordered.slice(0, maxShown).forEach((email) => {
+    memberAvatarsEl.appendChild(buildAvatar(email));
+  });
+  if (ordered.length > maxShown) {
+    const more = document.createElement("div");
+    more.className = "avatar-circle avatar-more";
+    more.textContent = "+" + (ordered.length - maxShown);
+    memberAvatarsEl.appendChild(more);
+  }
+}
 
 googleLoginBtn.addEventListener("click", () => {
   auth.signInWithPopup(provider).catch((err) => {
@@ -369,6 +432,7 @@ auth.onAuthStateChanged((user) => {
     trashBtn.classList.add("hidden");
     trashModal.classList.add("hidden");
     membersModal.classList.add("hidden");
+    memberAvatarsEl.classList.add("hidden");
     closeCardModal();
     board.innerHTML = "";
     state.projects = [];
@@ -499,6 +563,8 @@ function memberRow(email, roleLabel, onRemove) {
   const row = document.createElement("div");
   row.className = "member-row";
 
+  row.appendChild(buildAvatar(email, "small"));
+
   const label = document.createElement("span");
   label.textContent = email;
 
@@ -520,6 +586,13 @@ function memberRow(email, roleLabel, onRemove) {
   return row;
 }
 
+function memberGroupLabel(text) {
+  const label = document.createElement("div");
+  label.className = "member-group-label";
+  label.textContent = text;
+  return label;
+}
+
 function renderMembersModal() {
   const project = state.projects.find((p) => p.id === membersModalProjectId);
   if (!project) {
@@ -531,39 +604,46 @@ function renderMembersModal() {
   membersModalTitle.textContent = "👥 " + project.name + " のメンバー";
   membersListEl.innerHTML = "";
 
+  membersListEl.appendChild(memberGroupLabel("オーナー"));
   membersListEl.appendChild(memberRow(project.ownerEmail || "(不明)", "オーナー", null));
 
-  (project.editors || []).forEach((email) => {
-    membersListEl.appendChild(
-      memberRow(
-        email,
-        "共同編集",
-        isOwner
-          ? () => {
-              project.editors = project.editors.filter((e) => e !== email);
-              project.memberEmails = buildMemberEmails(project);
-              saveProject(project);
-            }
-          : null
-      )
-    );
-  });
+  if ((project.editors || []).length) {
+    membersListEl.appendChild(memberGroupLabel("共同編集"));
+    project.editors.forEach((email) => {
+      membersListEl.appendChild(
+        memberRow(
+          email,
+          "共同編集",
+          isOwner
+            ? () => {
+                project.editors = project.editors.filter((e) => e !== email);
+                project.memberEmails = buildMemberEmails(project);
+                saveProject(project);
+              }
+            : null
+        )
+      );
+    });
+  }
 
-  (project.viewers || []).forEach((email) => {
-    membersListEl.appendChild(
-      memberRow(
-        email,
-        "閲覧のみ",
-        isOwner
-          ? () => {
-              project.viewers = project.viewers.filter((e) => e !== email);
-              project.memberEmails = buildMemberEmails(project);
-              saveProject(project);
-            }
-          : null
-      )
-    );
-  });
+  if ((project.viewers || []).length) {
+    membersListEl.appendChild(memberGroupLabel("閲覧者"));
+    project.viewers.forEach((email) => {
+      membersListEl.appendChild(
+        memberRow(
+          email,
+          "閲覧のみ",
+          isOwner
+            ? () => {
+                project.viewers = project.viewers.filter((e) => e !== email);
+                project.memberEmails = buildMemberEmails(project);
+                saveProject(project);
+              }
+            : null
+        )
+      );
+    });
+  }
 
   inviteForm.classList.toggle("hidden", !isOwner);
   inviteNote.classList.toggle("hidden", !isOwner);

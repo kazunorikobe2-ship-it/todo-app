@@ -139,6 +139,18 @@ body {
   overflow-y: auto;
 }
 
+.member-group-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b778c;
+  text-transform: uppercase;
+  margin: 10px 0 6px;
+}
+
+.member-group-label:first-child {
+  margin-top: 0;
+}
+
 .member-row {
   display: flex;
   align-items: center;
@@ -291,6 +303,45 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.member-avatar-stack {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  margin-right: 2px;
+}
+
+.avatar-circle {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  margin-left: -8px;
+  flex-shrink: 0;
+}
+
+.member-avatar-stack .avatar-circle:first-child {
+  margin-left: 0;
+}
+
+.avatar-circle.avatar-more {
+  background: #dfe1e6 !important;
+  color: #42526e;
+  font-size: 11px;
+}
+
+.avatar-circle.small {
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  border-width: 0;
 }
 
 .user-info {
