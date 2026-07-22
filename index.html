@@ -319,9 +319,14 @@
       <h2>プロフィール設定</h2>
 
       <div class="profile-avatar-row">
-        <div id="profile-avatar" class="avatar-circle large"></div>
+        <div class="profile-avatar-wrap">
+          <div id="profile-avatar" class="avatar-circle large"></div>
+          <button id="profile-avatar-upload-btn" class="profile-avatar-upload-btn" type="button" title="画像をアップロード">📷</button>
+          <input type="file" id="profile-avatar-file-input" accept="image/*" class="hidden" />
+        </div>
         <div id="profile-email-display" class="profile-email"></div>
       </div>
+      <p class="field-hint profile-avatar-hint">画像は1MBまで</p>
 
       <div class="modal-field">
         <label>表示名</label>
@@ -339,6 +344,29 @@
 
       <div class="modal-actions">
         <button id="profile-save-btn" class="confirm-add">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- プロフィール画像トリミングモーダル -->
+  <div id="avatar-crop-modal" class="modal-overlay hidden">
+    <div class="modal-content small avatar-crop-content">
+      <button id="avatar-crop-close-btn" class="modal-close-x">✕</button>
+      <h2>画像の位置を調整</h2>
+      <p class="field-hint">ドラッグして位置を、スライダーで拡大率を調整してください。</p>
+
+      <div id="avatar-crop-stage" class="avatar-crop-stage">
+        <img id="avatar-crop-img" class="avatar-crop-img" draggable="false" alt="" />
+      </div>
+
+      <div class="avatar-crop-zoom-row">
+        <span>🔍</span>
+        <input type="range" id="avatar-crop-zoom" min="100" max="300" value="100" />
+      </div>
+
+      <div class="modal-actions">
+        <button id="avatar-crop-cancel-btn" class="cancel-add" type="button">キャンセル</button>
+        <button id="avatar-crop-confirm-btn" class="confirm-add" type="button">この画像を使う</button>
       </div>
     </div>
   </div>

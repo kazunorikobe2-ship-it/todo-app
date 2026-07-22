@@ -1862,6 +1862,201 @@ profileManageBillingBtn.addEventListener("click", () => {
     });
 });
 
+// ---------- profile avatar upload + crop ----------
+const AVATAR_MAX_FILE_SIZE = 1 * 1024 * 1024; // 1MB
+const AVATAR_CROP_STAGE_SIZE = 240; // px, matches .avatar-crop-stage in CSS
+const AVATAR_OUTPUT_SIZE = 400; // px, final square photo rendered to canvas
+
+const profileAvatarUploadBtn = document.getElementById("profile-avatar-upload-btn");
+const profileAvatarFileInput = document.getElementById("profile-avatar-file-input");
+const avatarCropModal = document.getElementById("avatar-crop-modal");
+const avatarCropCloseBtn = document.getElementById("avatar-crop-close-btn");
+const avatarCropStage = document.getElementById("avatar-crop-stage");
+const avatarCropImg = document.getElementById("avatar-crop-img");
+const avatarCropZoom = document.getElementById("avatar-crop-zoom");
+const avatarCropCancelBtn = document.getElementById("avatar-crop-cancel-btn");
+const avatarCropConfirmBtn = document.getElementById("avatar-crop-confirm-btn");
+
+// Pan/zoom state for the crop tool. baseScale is whatever scale makes the
+// image just barely cover the (square) crop stage; the zoom slider applies
+// an additional multiplier on top of that, and offsetX/offsetY are drag
+// offsets (in on-screen px at the current scale) from dead-center.
+const avatarCrop = {
+  naturalWidth: 0,
+  naturalHeight: 0,
+  baseScale: 1,
+  offsetX: 0,
+  offsetY: 0,
+  dragging: false,
+  dragStartX: 0,
+  dragStartY: 0,
+  startOffsetX: 0,
+  startOffsetY: 0,
+};
+
+function avatarCropDisplayScale() {
+  return avatarCrop.baseScale * (Number(avatarCropZoom.value) / 100);
+}
+
+function clampAvatarCropOffsets() {
+  const scale = avatarCropDisplayScale();
+  const displayWidth = avatarCrop.naturalWidth * scale;
+  const displayHeight = avatarCrop.naturalHeight * scale;
+  const maxX = Math.max(0, (displayWidth - AVATAR_CROP_STAGE_SIZE) / 2);
+  const maxY = Math.max(0, (displayHeight - AVATAR_CROP_STAGE_SIZE) / 2);
+  avatarCrop.offsetX = Math.min(maxX, Math.max(-maxX, avatarCrop.offsetX));
+  avatarCrop.offsetY = Math.min(maxY, Math.max(-maxY, avatarCrop.offsetY));
+}
+
+function renderAvatarCropTransform() {
+  clampAvatarCropOffsets();
+  const scale = avatarCropDisplayScale();
+  const displayWidth = avatarCrop.naturalWidth * scale;
+  const displayHeight = avatarCrop.naturalHeight * scale;
+  avatarCropImg.style.width = displayWidth + "px";
+  avatarCropImg.style.height = displayHeight + "px";
+  avatarCropImg.style.transform = `translate(-50%, -50%) translate(${avatarCrop.offsetX}px, ${avatarCrop.offsetY}px)`;
+}
+
+function openAvatarCropModal(dataUrl) {
+  avatarCropImg.onload = () => {
+    avatarCrop.naturalWidth = avatarCropImg.naturalWidth;
+    avatarCrop.naturalHeight = avatarCropImg.naturalHeight;
+    avatarCrop.baseScale = Math.max(
+      AVATAR_CROP_STAGE_SIZE / avatarCrop.naturalWidth,
+      AVATAR_CROP_STAGE_SIZE / avatarCrop.naturalHeight
+    );
+    avatarCrop.offsetX = 0;
+    avatarCrop.offsetY = 0;
+    avatarCropZoom.value = 100;
+    renderAvatarCropTransform();
+  };
+  avatarCropImg.src = dataUrl;
+  avatarCropModal.classList.remove("hidden");
+}
+
+function closeAvatarCropModal() {
+  avatarCropModal.classList.add("hidden");
+  avatarCropImg.src = "";
+  profileAvatarFileInput.value = "";
+}
+
+profileAvatarUploadBtn.addEventListener("click", () => profileAvatarFileInput.click());
+
+profileAvatarFileInput.addEventListener("change", () => {
+  const file = profileAvatarFileInput.files && profileAvatarFileInput.files[0];
+  if (!file) return;
+  if (!file.type || !file.type.startsWith("image/")) {
+    alert("画像ファイルを選択してください。");
+    profileAvatarFileInput.value = "";
+    return;
+  }
+  if (file.size > AVATAR_MAX_FILE_SIZE) {
+    alert("画像は1MBまでのファイルを選択してください。");
+    profileAvatarFileInput.value = "";
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => openAvatarCropModal(reader.result);
+  reader.readAsDataURL(file);
+});
+
+avatarCropCloseBtn.addEventListener("click", closeAvatarCropModal);
+avatarCropCancelBtn.addEventListener("click", closeAvatarCropModal);
+avatarCropModal.addEventListener("click", (e) => {
+  if (e.target === avatarCropModal) closeAvatarCropModal();
+});
+
+avatarCropZoom.addEventListener("input", renderAvatarCropTransform);
+
+function avatarCropPointerDown(clientX, clientY) {
+  avatarCrop.dragging = true;
+  avatarCrop.dragStartX = clientX;
+  avatarCrop.dragStartY = clientY;
+  avatarCrop.startOffsetX = avatarCrop.offsetX;
+  avatarCrop.startOffsetY = avatarCrop.offsetY;
+}
+function avatarCropPointerMove(clientX, clientY) {
+  if (!avatarCrop.dragging) return;
+  avatarCrop.offsetX = avatarCrop.startOffsetX + (clientX - avatarCrop.dragStartX);
+  avatarCrop.offsetY = avatarCrop.startOffsetY + (clientY - avatarCrop.dragStartY);
+  renderAvatarCropTransform();
+}
+function avatarCropPointerUp() {
+  avatarCrop.dragging = false;
+}
+
+avatarCropStage.addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  avatarCropPointerDown(e.clientX, e.clientY);
+});
+window.addEventListener("mousemove", (e) => avatarCropPointerMove(e.clientX, e.clientY));
+window.addEventListener("mouseup", avatarCropPointerUp);
+
+avatarCropStage.addEventListener(
+  "touchstart",
+  (e) => {
+    const t = e.touches[0];
+    if (t) avatarCropPointerDown(t.clientX, t.clientY);
+  },
+  { passive: true }
+);
+window.addEventListener(
+  "touchmove",
+  (e) => {
+    const t = e.touches[0];
+    if (t) avatarCropPointerMove(t.clientX, t.clientY);
+  },
+  { passive: true }
+);
+window.addEventListener("touchend", avatarCropPointerUp);
+
+avatarCropConfirmBtn.addEventListener("click", async () => {
+  if (!currentUser) return;
+  avatarCropConfirmBtn.disabled = true;
+  const originalLabel = avatarCropConfirmBtn.textContent;
+  avatarCropConfirmBtn.textContent = "アップロード中...";
+  try {
+    const scale = avatarCropDisplayScale();
+    const displayWidth = avatarCrop.naturalWidth * scale;
+    const displayHeight = avatarCrop.naturalHeight * scale;
+    const imgLeft = AVATAR_CROP_STAGE_SIZE / 2 - displayWidth / 2 + avatarCrop.offsetX;
+    const imgTop = AVATAR_CROP_STAGE_SIZE / 2 - displayHeight / 2 + avatarCrop.offsetY;
+    const srcX = -imgLeft / scale;
+    const srcY = -imgTop / scale;
+    const srcSize = AVATAR_CROP_STAGE_SIZE / scale;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = AVATAR_OUTPUT_SIZE;
+    canvas.height = AVATAR_OUTPUT_SIZE;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(avatarCropImg, srcX, srcY, srcSize, srcSize, 0, 0, AVATAR_OUTPUT_SIZE, AVATAR_OUTPUT_SIZE);
+
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+    if (!blob) throw new Error("画像の生成に失敗しました。");
+    // uploadFile() expects a File-like object with a .name; a bare Blob from
+    // canvas.toBlob() doesn't have one, so wrap it.
+    const avatarFile = new File([blob], "avatar.jpg", { type: "image/jpeg" });
+
+    const attachment = await uploadFile(avatarFile, `kanban/avatars/${currentUser.uid}`);
+    await usersCollection.doc(currentUser.uid).set({ photoURL: attachment.url }, { merge: true });
+
+    userProfile = userProfile || {};
+    userProfile.photoURL = attachment.url;
+    profileAvatarEl.textContent = "";
+    profileAvatarEl.style.backgroundImage = `url(${attachment.url})`;
+    updateUserInfoDisplay();
+
+    closeAvatarCropModal();
+  } catch (err) {
+    console.error("failed to upload avatar", err);
+    alert("画像のアップロードに失敗しました。もう一度お試しください。");
+  } finally {
+    avatarCropConfirmBtn.disabled = false;
+    avatarCropConfirmBtn.textContent = originalLabel;
+  }
+});
+
 // ---------- billing: Firebase ID token + API helper ----------
 async function getIdToken() {
   if (!auth.currentUser) throw new Error("ログインしていません。");

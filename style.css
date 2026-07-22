@@ -1282,6 +1282,38 @@ body {
   background-position: center;
 }
 
+.profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-avatar-upload-btn {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: #5067c5;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.profile-avatar-upload-btn:hover {
+  background: #3c50a8;
+}
+
+.profile-avatar-hint {
+  margin: -10px 0 14px;
+}
+
 .profile-email {
   font-size: 13px;
   color: #6b778c;
@@ -1310,6 +1342,49 @@ body {
 .pending-downgrade {
   color: #b04a00;
   font-weight: 600;
+}
+
+/* ---------- avatar crop modal ---------- */
+
+.avatar-crop-content {
+  text-align: center;
+}
+
+.avatar-crop-stage {
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  overflow: hidden;
+  margin: 14px auto;
+  position: relative;
+  background: #f4f5f7;
+  cursor: grab;
+  box-shadow: 0 0 0 2px #dfe1e6;
+}
+
+.avatar-crop-stage:active {
+  cursor: grabbing;
+}
+
+.avatar-crop-img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  user-select: none;
+  pointer-events: none;
+}
+
+.avatar-crop-zoom-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  margin-bottom: 6px;
+}
+
+.avatar-crop-zoom-row input[type="range"] {
+  flex: 1;
 }
 
 .billing-toast {
