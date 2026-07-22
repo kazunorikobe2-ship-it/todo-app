@@ -884,19 +884,15 @@ function buildProjectRow(project) {
   });
 
   const isOwner = isOwnerOfProject(project);
-  const editable = canEditProject(project);
   const role = getRole(project);
 
-  const nameInput = document.createElement("input");
-  nameInput.className = "project-name-input";
-  nameInput.value = project.name;
-  nameInput.disabled = !editable;
-  nameInput.addEventListener("click", (e) => e.stopPropagation());
-  nameInput.addEventListener("change", () => {
-    project.name = nameInput.value.trim() || project.name;
-    saveProject(project);
-  });
-  row.appendChild(nameInput);
+  // Plain (non-editable) label — this used to be an <input> so the name
+  // could be renamed inline, but that made it too easy to accidentally
+  // rename a project while just trying to click over and switch to it.
+  const nameLabel = document.createElement("span");
+  nameLabel.className = "project-name-label";
+  nameLabel.textContent = project.name;
+  row.appendChild(nameLabel);
 
   if (!isOwner) {
     const roleBadge = document.createElement("span");

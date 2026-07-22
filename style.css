@@ -86,15 +86,14 @@ body {
   background: rgba(255, 255, 255, 0.32);
 }
 
-.project-name-input {
+.project-name-label {
   flex: 1;
-  background: transparent;
-  border: none;
   color: #fff;
   font-size: 13px;
   min-width: 0;
-  outline: none;
-  cursor: text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-delete-btn {
