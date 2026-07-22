@@ -51,7 +51,13 @@ async function requireAuth(req) {
     const decoded = await getAdminAuth().verifyIdToken(match[1]);
     return decoded; // { uid, email, ... }
   } catch (err) {
-    const wrapped = new Error("Invalid or expired ID token");
+    // Log the real underlying error (Admin SDK init failure, malformed
+    // service account key, genuine expired/invalid token, etc.) so it shows
+    // up in Vercel's function logs, and also surface it in the response
+    // during setup/testing so it's actually diagnosable from the browser
+    // console instead of a generic, misleading message.
+    console.error("requireAuth failed:", err);
+    const wrapped = new Error("認証エラー: " + (err.message || "Invalid or expired ID token"));
     wrapped.statusCode = 401;
     throw wrapped;
   }
