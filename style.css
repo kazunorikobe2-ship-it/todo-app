@@ -786,6 +786,13 @@ body {
   border-width: 0;
 }
 
+.avatar-circle.tiny {
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  border-width: 0;
+}
+
 .user-info {
   color: #fff;
   font-size: 13px;
@@ -2569,66 +2576,216 @@ body {
   background: #4bce97;
 }
 
-/* ---------- timeline view ---------- */
+/* ---------- timeline view (Gantt-style grid) ---------- */
 
 #timeline-view {
   padding: 20px 24px;
 }
 
-.timeline-axis-labels {
+.gantt-toolbar {
   display: flex;
-  justify-content: space-between;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 11px;
-  margin-bottom: 6px;
-  padding: 0 4px;
+  justify-content: flex-end;
+  margin-bottom: 8px;
 }
 
-.timeline-container {
-  background: rgba(255, 255, 255, 0.15);
+.gantt-today-btn {
+  background: #fff;
+  border: 1px solid #dfe1e6;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #172b4d;
+  cursor: pointer;
+}
+
+.gantt-today-btn:hover {
+  background: #f4f5f7;
+}
+
+.gantt-scroll {
+  background: #fff;
   border-radius: 8px;
-  padding: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.gantt-grid {
   display: flex;
   flex-direction: column;
+}
+
+.gantt-header {
+  display: flex;
+  background: #fff;
+}
+
+.gantt-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.gantt-row {
+  display: flex;
+}
+
+.gantt-col-label {
+  display: flex;
+  align-items: center;
+  flex: 0 0 220px;
+  width: 220px;
+  border-bottom: 1px solid #eee;
+  border-right: 1px solid #dfe1e6;
+  padding: 0 10px;
   gap: 8px;
 }
 
-.timeline-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.gantt-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #fff;
 }
 
-.timeline-label {
-  width: 160px;
-  flex-shrink: 0;
-  color: #fff;
-  font-size: 12px;
+.gantt-col-label-title,
+.gantt-col-label-assignee {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5e6c84;
+  text-transform: uppercase;
+}
+
+.gantt-col-label-title {
+  flex: 1;
+}
+
+.gantt-col-label-assignee {
+  flex: 0 0 64px;
+}
+
+.gantt-header .gantt-col-label {
+  height: 52px;
+  align-items: flex-end;
+  padding-bottom: 8px;
+}
+
+.gantt-row-title {
+  flex: 1;
+  font-size: 13px;
+  color: #172b4d;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.timeline-track {
-  position: relative;
-  flex: 1;
-  height: 22px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
+.gantt-row-assignee {
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  color: #6b778c;
+  font-size: 12px;
 }
 
-.timeline-bar {
+.gantt-row-assignee .avatar-circle.tiny {
+  margin-left: -6px;
+}
+
+.gantt-row-assignee .avatar-circle.tiny:first-child {
+  margin-left: 0;
+}
+
+.gantt-assignee-more {
+  margin-left: 2px;
+  font-size: 10px;
+  color: #6b778c;
+}
+
+.gantt-col-days {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.gantt-month-row {
+  display: flex;
+  height: 22px;
+}
+
+.gantt-month-seg {
+  flex-shrink: 0;
+  border-bottom: 1px solid #eee;
+  border-right: 1px solid #dfe1e6;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5e6c84;
+  padding: 3px 0 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.gantt-day-row {
+  display: flex;
+  height: 30px;
+}
+
+.gantt-day-cell {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #5e6c84;
+  border-bottom: 1px solid #eee;
+  border-right: 1px solid #f0f0f0;
+}
+
+.gantt-day-cell-bg {
+  flex-shrink: 0;
+  border-right: 1px solid #f0f0f0;
+}
+
+.gantt-day-sun,
+.gantt-day-sat {
+  background: #fbeaea;
+}
+
+.gantt-day-today {
+  background: #fff3cf;
+}
+
+.gantt-track {
+  position: relative;
+  display: flex;
+  border-bottom: 1px solid #eee;
+  height: 40px;
+}
+
+.gantt-bar {
   position: absolute;
-  top: 0;
-  height: 100%;
+  top: 8px;
+  height: 24px;
   min-width: 10px;
   background: #5067c5;
   border-radius: 4px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  overflow: hidden;
 }
 
-.timeline-bar:hover {
-  filter: brightness(1.1);
+.gantt-bar:hover {
+  filter: brightness(1.08);
+}
+
+.gantt-bar-label {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ---------- dashboard view ---------- */

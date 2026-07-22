@@ -2706,6 +2706,26 @@ function renderCalendarView() {
 }
 
 // ---------- timeline view ----------
+// Width (px) of a single day column in the Gantt-style timeline grid. Fixed
+// per-day sizing (rather than the old percentage-of-range positioning) is
+// what lets the grid be drawn with crisp, exactly-aligned ruled lines.
+const GANTT_DAY_WIDTH = 32;
+
+function gttStartOfDay(d) {
+  const copy = new Date(d);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+}
+
+function gttDayIndex(dateStr, minDate) {
+  const d = gttStartOfDay(new Date(dateStr));
+  return Math.round((d - minDate) / 86400000);
+}
+
+function gttFormatMonthLabel(d) {
+  return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+}
+
 function renderTimelineView() {
   const project = getActiveProject();
   const panel = viewPanels.timeline;
@@ -2738,59 +2758,179 @@ function renderTimelineView() {
     if (card.startDate) allDates.push(card.startDate);
     if (card.dueDate) allDates.push(card.dueDate);
   });
-  const minDate = new Date(allDates.reduce((a, b) => (a < b ? a : b)));
-  const maxDate = new Date(allDates.reduce((a, b) => (a > b ? a : b)));
-  minDate.setDate(minDate.getDate() - 1);
-  maxDate.setDate(maxDate.getDate() + 1);
-  const totalMs = maxDate - minDate || 1;
+  const today = gttStartOfDay(new Date());
+  const rawMin = gttStartOfDay(new Date(allDates.reduce((a, b) => (a < b ? a : b))));
+  const rawMax = gttStartOfDay(new Date(allDates.reduce((a, b) => (a > b ? a : b))));
+  // Pad a few days on either side, and always make sure "today" falls
+  // somewhere within the visible range so the today-marker is reachable.
+  const minDate = new Date(Math.min(rawMin.getTime(), today.getTime()));
+  minDate.setDate(minDate.getDate() - 2);
+  const maxDate = new Date(Math.max(rawMax.getTime(), today.getTime()));
+  maxDate.setDate(maxDate.getDate() + 2);
+  const totalDays = Math.round((maxDate - minDate) / 86400000) + 1;
+  const todayIndex = gttDayIndex(today, minDate);
 
-  const axis = document.createElement("div");
-  axis.className = "timeline-axis-labels";
-  const startLabel = document.createElement("span");
-  startLabel.textContent = minDate.toISOString().slice(0, 10);
-  const endLabel = document.createElement("span");
-  endLabel.textContent = maxDate.toISOString().slice(0, 10);
-  axis.appendChild(startLabel);
-  axis.appendChild(endLabel);
-  panel.appendChild(axis);
+  // ---- toolbar ----
+  const toolbar = document.createElement("div");
+  toolbar.className = "gantt-toolbar";
+  const todayBtn = document.createElement("button");
+  todayBtn.type = "button";
+  todayBtn.className = "gantt-today-btn";
+  todayBtn.textContent = "📍 今日";
+  toolbar.appendChild(todayBtn);
+  panel.appendChild(toolbar);
 
-  const container = document.createElement("div");
-  container.className = "timeline-container";
+  // ---- scroll wrapper (sticky label column lives inside this) ----
+  const scrollWrap = document.createElement("div");
+  scrollWrap.className = "gantt-scroll";
+
+  const grid = document.createElement("div");
+  grid.className = "gantt-grid";
+  grid.style.width = 220 + totalDays * GANTT_DAY_WIDTH + "px";
+
+  // ---- header: sticky label header + month row + day-number row ----
+  const header = document.createElement("div");
+  header.className = "gantt-header";
+
+  const labelHeader = document.createElement("div");
+  labelHeader.className = "gantt-col-label gantt-sticky";
+  const titleHead = document.createElement("div");
+  titleHead.className = "gantt-col-label-title";
+  titleHead.textContent = "件名";
+  const assigneeHead = document.createElement("div");
+  assigneeHead.className = "gantt-col-label-assignee";
+  assigneeHead.textContent = "担当者";
+  labelHeader.appendChild(titleHead);
+  labelHeader.appendChild(assigneeHead);
+  header.appendChild(labelHeader);
+
+  const daysHeader = document.createElement("div");
+  daysHeader.className = "gantt-col-days";
+  daysHeader.style.width = totalDays * GANTT_DAY_WIDTH + "px";
+
+  const monthRow = document.createElement("div");
+  monthRow.className = "gantt-month-row";
+  let monthCursor = 0;
+  while (monthCursor < totalDays) {
+    const cursorDate = new Date(minDate);
+    cursorDate.setDate(cursorDate.getDate() + monthCursor);
+    const y = cursorDate.getFullYear();
+    const m = cursorDate.getMonth();
+    let span = 0;
+    while (monthCursor + span < totalDays) {
+      const d = new Date(minDate);
+      d.setDate(d.getDate() + monthCursor + span);
+      if (d.getFullYear() !== y || d.getMonth() !== m) break;
+      span++;
+    }
+    const seg = document.createElement("div");
+    seg.className = "gantt-month-seg";
+    seg.style.width = span * GANTT_DAY_WIDTH + "px";
+    seg.textContent = gttFormatMonthLabel(cursorDate);
+    monthRow.appendChild(seg);
+    monthCursor += span;
+  }
+  daysHeader.appendChild(monthRow);
+
+  const dayRow = document.createElement("div");
+  dayRow.className = "gantt-day-row";
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(minDate);
+    d.setDate(d.getDate() + i);
+    const cell = document.createElement("div");
+    const dow = d.getDay();
+    cell.className =
+      "gantt-day-cell" +
+      (dow === 0 ? " gantt-day-sun" : dow === 6 ? " gantt-day-sat" : "") +
+      (i === todayIndex ? " gantt-day-today" : "");
+    cell.style.width = GANTT_DAY_WIDTH + "px";
+    cell.textContent = String(d.getDate());
+    dayRow.appendChild(cell);
+  }
+  daysHeader.appendChild(dayRow);
+  header.appendChild(daysHeader);
+  grid.appendChild(header);
+
+  // ---- body rows ----
+  const body = document.createElement("div");
+  body.className = "gantt-body";
 
   items.forEach(({ card, column }) => {
     const row = document.createElement("div");
-    row.className = "timeline-row";
+    row.className = "gantt-row";
 
-    const label = document.createElement("div");
-    label.className = "timeline-label";
-    label.textContent = card.text;
-    label.title = column.title;
+    const labelCell = document.createElement("div");
+    labelCell.className = "gantt-col-label gantt-sticky";
+    const titleEl = document.createElement("div");
+    titleEl.className = "gantt-row-title";
+    titleEl.textContent = card.text;
+    titleEl.title = column.title;
+    const assigneeEl = document.createElement("div");
+    assigneeEl.className = "gantt-row-assignee";
+    if (card.members && card.members.length) {
+      card.members.slice(0, 3).forEach((email) => {
+        assigneeEl.appendChild(buildAvatar(email, "tiny"));
+      });
+      if (card.members.length > 3) {
+        const more = document.createElement("span");
+        more.className = "gantt-assignee-more";
+        more.textContent = "+" + (card.members.length - 3);
+        assigneeEl.appendChild(more);
+      }
+    } else {
+      assigneeEl.textContent = "-";
+    }
+    labelCell.appendChild(titleEl);
+    labelCell.appendChild(assigneeEl);
+    row.appendChild(labelCell);
 
     const track = document.createElement("div");
-    track.className = "timeline-track";
+    track.className = "gantt-col-days gantt-track";
+    track.style.width = totalDays * GANTT_DAY_WIDTH + "px";
+
+    for (let i = 0; i < totalDays; i++) {
+      const d = new Date(minDate);
+      d.setDate(d.getDate() + i);
+      const dow = d.getDay();
+      const bg = document.createElement("div");
+      bg.className =
+        "gantt-day-cell-bg" +
+        (dow === 0 ? " gantt-day-sun" : dow === 6 ? " gantt-day-sat" : "") +
+        (i === todayIndex ? " gantt-day-today" : "");
+      bg.style.width = GANTT_DAY_WIDTH + "px";
+      track.appendChild(bg);
+    }
 
     const startStr = card.startDate || card.dueDate;
     const endStr = card.dueDate || card.startDate;
-    const startMs = new Date(startStr) - minDate;
-    const endMs = new Date(endStr) - minDate;
-    const leftPct = (startMs / totalMs) * 100;
-    const widthPct = Math.max(((endMs - startMs) / totalMs) * 100, 1.2);
-
+    const startIdx = gttDayIndex(startStr, minDate);
+    const endIdx = Math.max(gttDayIndex(endStr, minDate), startIdx);
     const bar = document.createElement("div");
-    bar.className = "timeline-bar";
+    bar.className = "gantt-bar";
     if (card.priority) bar.style.background = priorityColor(card.priority, project);
-    bar.style.left = leftPct + "%";
-    bar.style.width = widthPct + "%";
+    bar.style.left = startIdx * GANTT_DAY_WIDTH + 2 + "px";
+    bar.style.width = (endIdx - startIdx + 1) * GANTT_DAY_WIDTH - 4 + "px";
     bar.title = `${startStr} 〜 ${endStr}`;
     bar.addEventListener("click", () => openCardModal(column.id, card.id));
+    const barLabel = document.createElement("span");
+    barLabel.className = "gantt-bar-label";
+    barLabel.textContent = card.text;
+    bar.appendChild(barLabel);
 
     track.appendChild(bar);
-    row.appendChild(label);
     row.appendChild(track);
-    container.appendChild(row);
+    body.appendChild(row);
   });
 
-  panel.appendChild(container);
+  grid.appendChild(body);
+  scrollWrap.appendChild(grid);
+  panel.appendChild(scrollWrap);
+
+  todayBtn.addEventListener("click", () => {
+    scrollWrap.scrollLeft = Math.max(0, todayIndex * GANTT_DAY_WIDTH - scrollWrap.clientWidth / 2);
+  });
+  // Land on "today" by default rather than the far-left edge.
+  scrollWrap.scrollLeft = Math.max(0, todayIndex * GANTT_DAY_WIDTH - scrollWrap.clientWidth / 2);
 }
 
 // ---------- dashboard view ----------
