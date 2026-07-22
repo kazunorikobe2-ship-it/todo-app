@@ -851,75 +851,103 @@ drawerToggleBtn.addEventListener("click", () => {
   applyDrawerState();
 });
 
+// Groups the project list into "自分のプロジェクト" (owned) and "共有された
+// プロジェクト" (invited as editor/viewer) so it's clear at a glance which
+// projects the signed-in user actually created versus was invited into,
+// instead of a single undifferentiated list.
 function renderProjectList() {
   projectListEl.innerHTML = "";
-  state.projects.forEach((project) => {
-    const row = document.createElement("div");
-    row.className = "project-item" + (project.id === currentProjectId ? " active" : "");
-    row.addEventListener("click", () => {
-      currentProjectId = project.id;
-      localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
-      renderAll();
-    });
 
-    const isOwner = isOwnerOfProject(project);
-    const editable = canEditProject(project);
+  const owned = state.projects.filter((p) => isOwnerOfProject(p));
+  const shared = state.projects.filter((p) => !isOwnerOfProject(p));
 
-    const nameInput = document.createElement("input");
-    nameInput.className = "project-name-input";
-    nameInput.value = project.name;
-    nameInput.disabled = !editable;
-    nameInput.addEventListener("click", (e) => e.stopPropagation());
-    nameInput.addEventListener("change", () => {
-      project.name = nameInput.value.trim() || project.name;
-      saveProject(project);
-    });
+  function appendGroup(projects, label) {
+    if (!projects.length) return;
+    const heading = document.createElement("div");
+    heading.className = "project-group-heading";
+    heading.textContent = label;
+    projectListEl.appendChild(heading);
+    projects.forEach((project) => projectListEl.appendChild(buildProjectRow(project)));
+  }
 
-    const membersBtn = document.createElement("button");
-    membersBtn.className = "project-members-btn";
-    membersBtn.textContent = "👥";
-    membersBtn.title = "メンバー";
-    membersBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openMembersModal(project.id);
-    });
+  appendGroup(owned, "自分のプロジェクト");
+  appendGroup(shared, "共有されたプロジェクト");
+}
 
-    row.appendChild(nameInput);
-    row.appendChild(membersBtn);
-
-    if (isOwner) {
-      const delBtn = document.createElement("button");
-      delBtn.className = "project-delete-btn";
-      delBtn.textContent = "✕";
-      delBtn.title = "プロジェクトを削除";
-      delBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (state.projects.length <= 1) {
-          alert("最後のプロジェクトは削除できません。");
-          return;
-        }
-        openConfirmModal({
-          title: "プロジェクトを削除しますか？",
-          message: `「${project.name}」とその中のすべてのリスト・カードが完全に削除されます。この操作は元に戻せません。`,
-          okLabel: "削除する",
-          onConfirm: () => {
-            (project.columns || []).forEach((col) => (col.cards || []).forEach((c) => deleteCardStorageFiles(c)));
-            (project.trash || []).forEach((item) => deleteCardStorageFiles(item.card));
-            projectsCollection
-              .doc(project.id)
-              .delete()
-              .catch((err) => {
-                console.error("delete failed", err);
-                alert("削除に失敗しました。");
-              });
-          },
-        });
-      });
-      row.appendChild(delBtn);
-    }
-
-    projectListEl.appendChild(row);
+function buildProjectRow(project) {
+  const row = document.createElement("div");
+  row.className = "project-item" + (project.id === currentProjectId ? " active" : "");
+  row.addEventListener("click", () => {
+    currentProjectId = project.id;
+    localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
+    renderAll();
   });
+
+  const isOwner = isOwnerOfProject(project);
+  const editable = canEditProject(project);
+  const role = getRole(project);
+
+  const nameInput = document.createElement("input");
+  nameInput.className = "project-name-input";
+  nameInput.value = project.name;
+  nameInput.disabled = !editable;
+  nameInput.addEventListener("click", (e) => e.stopPropagation());
+  nameInput.addEventListener("change", () => {
+    project.name = nameInput.value.trim() || project.name;
+    saveProject(project);
+  });
+  row.appendChild(nameInput);
+
+  if (!isOwner) {
+    const roleBadge = document.createElement("span");
+    roleBadge.className = "project-role-badge";
+    roleBadge.textContent = role === "editor" ? "編集者" : "閲覧のみ";
+    roleBadge.title = role === "editor" ? "共同編集者として招待されています" : "閲覧のみの権限で招待されています";
+    row.appendChild(roleBadge);
+  }
+
+  const membersBtn = document.createElement("button");
+  membersBtn.className = "project-members-btn";
+  membersBtn.textContent = "👥";
+  membersBtn.title = "メンバー";
+  membersBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    openMembersModal(project.id);
+  });
+  row.appendChild(membersBtn);
+
+  if (isOwner) {
+    const delBtn = document.createElement("button");
+    delBtn.className = "project-delete-btn";
+    delBtn.textContent = "✕";
+    delBtn.title = "プロジェクトを削除";
+    delBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (state.projects.length <= 1) {
+        alert("最後のプロジェクトは削除できません。");
+        return;
+      }
+      openConfirmModal({
+        title: "プロジェクトを削除しますか？",
+        message: `「${project.name}」とその中のすべてのリスト・カードが完全に削除されます。この操作は元に戻せません。`,
+        okLabel: "削除する",
+        onConfirm: () => {
+          (project.columns || []).forEach((col) => (col.cards || []).forEach((c) => deleteCardStorageFiles(c)));
+          (project.trash || []).forEach((item) => deleteCardStorageFiles(item.card));
+          projectsCollection
+            .doc(project.id)
+            .delete()
+            .catch((err) => {
+              console.error("delete failed", err);
+              alert("削除に失敗しました。");
+            });
+        },
+      });
+    });
+    row.appendChild(delBtn);
+  }
+
+  return row;
 }
 
 addProjectBtn.addEventListener("click", () => {
