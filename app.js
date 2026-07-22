@@ -1355,14 +1355,30 @@ function openMembersModal(projectId) {
   membersModal.classList.remove("hidden");
 }
 
+// Masks the 4 characters right after "@" in an email address (e.g.
+// "kazunorikobe@yahoo.co.jp" -> "kazunorikobe@****o.co.jp"), so the members
+// modal doesn't expose other people's full email addresses at a glance. The
+// signed-in user's own row is always shown in full, since there's no privacy
+// concern in a user seeing their own address.
+function maskEmailForDisplay(email) {
+  if (!email) return email;
+  const atIdx = email.indexOf("@");
+  if (atIdx === -1) return email;
+  const local = email.slice(0, atIdx + 1);
+  const domain = email.slice(atIdx + 1);
+  const maskLen = Math.min(4, domain.length);
+  return local + "*".repeat(maskLen) + domain.slice(maskLen);
+}
+
 function memberRow(email, roleLabel, onRemove) {
   const row = document.createElement("div");
   row.className = "member-row";
 
   row.appendChild(buildAvatar(email, "small"));
 
+  const isSelf = !!(currentUser && currentUser.email && email === currentUser.email);
   const label = document.createElement("span");
-  label.textContent = email;
+  label.textContent = isSelf ? email : maskEmailForDisplay(email);
 
   const role = document.createElement("span");
   role.className = "member-role-badge";
