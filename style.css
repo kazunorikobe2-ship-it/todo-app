@@ -701,6 +701,23 @@ body {
   opacity: 0.4;
 }
 
+.card-cover {
+  margin: -10px -12px 8px -12px;
+  border-radius: 6px 6px 0 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  background-color: #dfe1e6;
+}
+
+.card-cover.color-cover {
+  height: 32px;
+}
+
+.card-cover.image-cover {
+  height: 100px;
+}
+
 .card .card-delete {
   position: absolute;
   top: 6px;
@@ -883,6 +900,48 @@ body {
 
 .modal-close-x:hover {
   color: #172b4d;
+}
+
+.modal-cover-banner {
+  height: 160px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #dfe1e6;
+  border-radius: 10px 10px 0 0;
+  flex-shrink: 0;
+}
+
+.cover-swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cover-swatch {
+  width: 36px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.cover-swatch:hover {
+  filter: brightness(1.08);
+}
+
+.cover-swatch.active {
+  outline: 2px solid #172b4d;
+  outline-offset: 1px;
+}
+
+.cover-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
 }
 
 .modal-columns {

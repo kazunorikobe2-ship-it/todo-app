@@ -72,10 +72,28 @@
   <div id="card-modal" class="modal-overlay hidden">
     <div class="modal-content wide">
       <button id="modal-close-btn" class="modal-close-x">✕</button>
+      <div id="modal-cover-banner" class="modal-cover-banner hidden"></div>
 
       <div class="modal-columns">
         <div class="modal-left">
           <input id="modal-title" class="modal-title-input" />
+
+          <div class="modal-field">
+            <label>カバー</label>
+            <div id="modal-cover-controls">
+              <div id="modal-cover-swatches" class="cover-swatch-row"></div>
+              <div class="cover-actions-row">
+                <label id="modal-cover-image-label" class="file-input-label">
+                  🖼️ 画像を追加
+                  <input type="file" id="modal-cover-image-input" class="file-input-hidden" />
+                </label>
+                <button id="modal-cover-remove-btn" class="link-btn small hidden">カバーを削除</button>
+              </div>
+              <div id="modal-cover-uploading" class="upload-status hidden">
+                <span class="spinner"></span>アップロード中...
+              </div>
+            </div>
+          </div>
 
           <div class="modal-field">
             <label>開始日</label>

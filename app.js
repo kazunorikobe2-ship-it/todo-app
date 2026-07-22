@@ -14,8 +14,22 @@ function makeCard(text) {
     members: [],
     comments: [],
     attachments: [],
+    cover: null,
   };
 }
+
+const COVER_COLORS = [
+  "#4bce97",
+  "#f5cd47",
+  "#fea362",
+  "#f87462",
+  "#9f8fef",
+  "#579dff",
+  "#6cc3e0",
+  "#94c748",
+  "#e774bb",
+  "#8590a2",
+];
 
 function makeColumn(title, cards) {
   return { id: uid(), title, cards: cards || [] };
@@ -979,6 +993,17 @@ function renderBoard() {
       });
       cardEl.addEventListener("click", () => openCardModal(column.id, card.id));
 
+      if (card.cover) {
+        const coverEl = document.createElement("div");
+        coverEl.className = "card-cover " + (card.cover.type === "image" ? "image-cover" : "color-cover");
+        if (card.cover.type === "image" && card.cover.url) {
+          coverEl.style.backgroundImage = `url(${card.cover.url})`;
+        } else if (card.cover.type === "color" && card.cover.color) {
+          coverEl.style.background = card.cover.color;
+        }
+        cardEl.appendChild(coverEl);
+      }
+
       const textDiv = document.createElement("div");
       textDiv.className = "card-text";
       textDiv.textContent = card.text;
@@ -1536,6 +1561,13 @@ const modalAttachmentLabel = document.getElementById("modal-attachment-label");
 const modalAttachmentUploadingEl = document.getElementById("modal-attachment-uploading");
 const modalCommentFileInput = document.getElementById("modal-comment-file-input");
 const pendingFileEl = document.getElementById("modal-comment-pending-file");
+const modalCoverBanner = document.getElementById("modal-cover-banner");
+const modalCoverControls = document.getElementById("modal-cover-controls");
+const modalCoverSwatchesEl = document.getElementById("modal-cover-swatches");
+const modalCoverImageInput = document.getElementById("modal-cover-image-input");
+const modalCoverImageLabel = document.getElementById("modal-cover-image-label");
+const modalCoverRemoveBtn = document.getElementById("modal-cover-remove-btn");
+const modalCoverUploadingEl = document.getElementById("modal-cover-uploading");
 
 function setAttachmentUploading(isUploading) {
   if (isUploading) {
@@ -1582,7 +1614,105 @@ function applyModalEditability(editable) {
   modalAttachmentLabel.classList.toggle("hidden", !editable);
   modalCommentFileInput.disabled = !editable;
   document.querySelector(".attach-icon-btn").classList.toggle("hidden", !editable);
+  modalCoverControls.classList.toggle("hidden", !editable);
+  modalCoverImageInput.disabled = !editable;
 }
+
+// ---------- card cover (color or image) ----------
+function renderCoverBanner(cover) {
+  if (!cover) {
+    modalCoverBanner.classList.add("hidden");
+    modalCoverBanner.style.backgroundImage = "";
+    modalCoverBanner.style.backgroundColor = "";
+    modalCoverRemoveBtn.classList.add("hidden");
+    return;
+  }
+  modalCoverBanner.classList.remove("hidden");
+  modalCoverRemoveBtn.classList.remove("hidden");
+  if (cover.type === "image" && cover.url) {
+    modalCoverBanner.style.backgroundImage = `url(${cover.url})`;
+    modalCoverBanner.style.backgroundColor = "";
+  } else if (cover.type === "color" && cover.color) {
+    modalCoverBanner.style.backgroundImage = "";
+    modalCoverBanner.style.backgroundColor = cover.color;
+  }
+}
+
+function renderCoverSwatches(cover) {
+  modalCoverSwatchesEl.innerHTML = "";
+  COVER_COLORS.forEach((color) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className =
+      "cover-swatch" + (cover && cover.type === "color" && cover.color === color ? " active" : "");
+    btn.style.background = color;
+    btn.title = "この色をカバーに設定";
+    btn.addEventListener("click", () => setCardCover({ type: "color", color }));
+    modalCoverSwatchesEl.appendChild(btn);
+  });
+}
+
+function setCardCover(cover) {
+  if (!activeCardRef) return;
+  const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+  if (!found || !canEditProject(found.project)) return;
+
+  const oldCover = found.card.cover;
+  found.card.cover = cover;
+  saveProject(found.project);
+  renderCoverBanner(found.card.cover);
+  renderCoverSwatches(found.card.cover);
+
+  if (oldCover && oldCover.type === "image" && oldCover.path && (!cover || cover.path !== oldCover.path)) {
+    storage
+      .ref()
+      .child(oldCover.path)
+      .delete()
+      .catch(() => {});
+  }
+}
+
+modalCoverImageInput.addEventListener("change", async () => {
+  const file = modalCoverImageInput.files[0];
+  modalCoverImageInput.value = "";
+  if (!file || !activeCardRef) return;
+  if (file.size > MAX_FILE_SIZE) {
+    alert("ファイルサイズは5MBまでです。");
+    return;
+  }
+  const targetColumnId = activeCardRef.columnId;
+  const targetCardId = activeCardRef.cardId;
+
+  modalCoverUploadingEl.classList.remove("hidden");
+  modalCoverImageLabel.classList.add("disabled");
+  try {
+    const uploaded = await uploadFile(file, `kanban/covers/${targetCardId}`);
+    const found = findCard(targetColumnId, targetCardId);
+    if (!found) return;
+    const oldCover = found.card.cover;
+    found.card.cover = { type: "image", url: uploaded.url, path: uploaded.path };
+    saveProject(found.project);
+    if (activeCardRef && activeCardRef.cardId === targetCardId) {
+      renderCoverBanner(found.card.cover);
+      renderCoverSwatches(found.card.cover);
+    }
+    if (oldCover && oldCover.type === "image" && oldCover.path) {
+      storage
+        .ref()
+        .child(oldCover.path)
+        .delete()
+        .catch(() => {});
+    }
+  } catch (err) {
+    console.error("cover upload failed", err);
+    alert("カバー画像のアップロードに失敗しました: " + err.message);
+  } finally {
+    modalCoverUploadingEl.classList.add("hidden");
+    modalCoverImageLabel.classList.remove("disabled");
+  }
+});
+
+modalCoverRemoveBtn.addEventListener("click", () => setCardCover(null));
 
 function openCardModal(columnId, cardId) {
   const found = findCard(columnId, cardId);
@@ -1612,6 +1742,8 @@ function populateModal(card) {
   renderMembers(card.members || []);
   renderComments(card.comments || []);
   renderAttachments(card.attachments || []);
+  renderCoverBanner(card.cover || null);
+  renderCoverSwatches(card.cover || null);
   pendingCommentFile = null;
   renderPendingFile();
 }
@@ -1882,6 +2014,8 @@ function syncModalIfOpen() {
   renderComments(found.card.comments || []);
   renderMembers(found.card.members || []);
   renderAttachments(found.card.attachments || []);
+  renderCoverBanner(found.card.cover || null);
+  renderCoverSwatches(found.card.cover || null);
 }
 
 // ---------- generic confirm modal ----------
