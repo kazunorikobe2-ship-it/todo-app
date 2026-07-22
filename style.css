@@ -124,6 +124,54 @@ body {
   color: #fff;
 }
 
+.plan-note {
+  margin-top: 10px;
+  padding: 10px 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.plan-note:hover {
+  color: #fff;
+}
+
+.plan-note .link-btn {
+  display: block;
+  color: #fff;
+  text-decoration: underline;
+  margin-top: 2px;
+  padding: 0;
+}
+
+.public-share-banner {
+  background: #4bce97;
+  color: #0b3b2a;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  padding: 8px 12px;
+}
+
+.public-share-banner a {
+  color: #0b3b2a;
+}
+
+/* Public read-only share mode: hide everything that assumes a logged-in
+   member (drawer, add/trash/logout/user controls). The board/table/etc.
+   views themselves already render read-only when there's no current user. */
+.public-share-mode #project-drawer,
+.public-share-mode #drawer-toggle-btn,
+.public-share-mode #add-column-btn,
+.public-share-mode #trash-btn,
+.public-share-mode #user-info,
+.public-share-mode #logout-btn,
+.public-share-mode #member-avatars {
+  display: none !important;
+}
+
 /* ---------- members / invite modal ---------- */
 
 .members-content h2 {
@@ -210,6 +258,119 @@ body {
   font-size: 13px;
 }
 
+.public-share-section {
+  border-top: 1px solid #eee;
+  padding-top: 12px;
+  margin-bottom: 12px;
+}
+
+.public-share-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #172b4d;
+  cursor: pointer;
+}
+
+.public-share-link-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.public-share-link-row input {
+  flex: 1;
+  padding: 7px 9px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 12px;
+  min-width: 0;
+  color: #5e6c84;
+  background: #f4f5f7;
+}
+
+/* ---------- plans comparison modal ---------- */
+
+.plans-content {
+  width: 780px;
+  max-width: 94vw;
+}
+
+.plans-columns {
+  display: flex;
+  gap: 14px;
+  margin: 18px 0 10px;
+}
+
+.plan-column {
+  flex: 1;
+  border: 1px solid #dcdfe4;
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+}
+
+.plan-column.highlight {
+  border-color: #5067c5;
+  background: #f5f6ff;
+}
+
+.plan-column.current {
+  border-color: #4bce97;
+  background: #f2fbf6;
+}
+
+.plan-column h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.plan-feature-list {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plan-feature-list li {
+  font-size: 12px;
+  color: #42526e;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #e0e2e6;
+  line-height: 1.5;
+}
+
+.plan-select-btn {
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #5067c5;
+  color: #fff;
+}
+
+.plan-select-btn:hover {
+  background: #3f52a3;
+}
+
+.plan-select-btn:disabled {
+  background: #dfe1e6;
+  color: #6b778c;
+  cursor: default;
+}
+
+@media (max-width: 700px) {
+  .plans-columns {
+    flex-direction: column;
+  }
+}
+
 .main-area {
   flex: 1;
   min-width: 0;
@@ -279,6 +440,15 @@ body {
   background: #fff;
   color: #172b4d;
   font-weight: 600;
+}
+
+.view-tab.locked {
+  opacity: 0.55;
+  cursor: pointer;
+}
+
+.view-tab.locked::after {
+  content: " 🔒";
 }
 
 .view-panel.hidden {

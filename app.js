@@ -52,6 +52,8 @@ function makeProject(name, seedSampleData) {
     name,
     ownerUid: null,
     ownerEmail: null,
+    ownerPlan: "free",
+    publicShareEnabled: false,
     editors: [],
     viewers: [],
     memberEmails: [],
@@ -67,7 +69,77 @@ function buildMemberEmails(project) {
   return Array.from(set);
 }
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB (Free plan's per-file cap)
+
+// ---------- plans ----------
+// Plan is a per-project concept: it follows the PROJECT OWNER's plan (like
+// Trello, where the board's plan gates features for everyone on the board),
+// denormalized onto the project document as `ownerPlan` so members/viewers
+// don't need permission to read the owner's private user profile.
+//
+// kazunorikobe2@gmail.com is a fixed "admin" identity: whenever THEY are the
+// project owner, that project always behaves as if on the top tier,
+// regardless of whatever plan value happens to be stored. This is about
+// this app's own operator having unrestricted access, not about them
+// managing other people's projects/members.
+const ADMIN_EMAIL = "kazunorikobe2@gmail.com";
+
+const PLAN_LIMITS = {
+  free: {
+    label: "Free",
+    maxProjects: 10,
+    views: ["board", "table"],
+    maxFileSizeMB: 5,
+    publicShare: false,
+  },
+  pro: {
+    label: "Pro",
+    maxProjects: Infinity,
+    views: ["board", "table", "calendar", "timeline", "dashboard"],
+    maxFileSizeMB: 150,
+    publicShare: false,
+  },
+  business: {
+    label: "Business",
+    maxProjects: Infinity,
+    views: ["board", "table", "calendar", "timeline", "dashboard"],
+    maxFileSizeMB: Infinity,
+    publicShare: true,
+  },
+};
+
+function isAdminUser(user) {
+  return !!(user && user.email === ADMIN_EMAIL);
+}
+
+function planLimitsFor(planKey) {
+  return PLAN_LIMITS[planKey] || PLAN_LIMITS.free;
+}
+
+// The plan that governs a given PROJECT's available features (view locks,
+// file size cap, public share eligibility) — based on its owner.
+function effectivePlanForProject(project) {
+  if (!project) return "free";
+  if (project.ownerEmail === ADMIN_EMAIL) return "business";
+  return project.ownerPlan || "free";
+}
+
+// The plan that governs the CURRENTLY SIGNED-IN user's own account-level
+// actions (e.g. how many projects they're allowed to own/create).
+function effectivePlanForCurrentUser() {
+  if (isAdminUser(currentUser)) return "business";
+  return (userProfile && userProfile.plan) || "free";
+}
+
+function maxFileSizeBytesForProject(project) {
+  const mb = planLimitsFor(effectivePlanForProject(project)).maxFileSizeMB;
+  return mb === Infinity ? Infinity : mb * 1024 * 1024;
+}
+
+function formatMaxSize(bytes) {
+  if (bytes === Infinity) return "無制限";
+  return formatFileSize(bytes);
+}
 
 function formatFileSize(bytes) {
   if (bytes === null || bytes === undefined) return "";
@@ -216,6 +288,18 @@ if (!["board", "table", "calendar", "timeline", "dashboard"].includes(currentVie
 let drawerOpen = localStorage.getItem(DRAWER_OPEN_KEY);
 drawerOpen = drawerOpen === null ? true : drawerOpen === "true";
 
+// ---------- public share (read-only, no login required) ----------
+// A Business-plan project owner can flip `publicShareEnabled` on a project
+// (see the members modal), which generates a `?share=<projectId>` URL.
+// Anyone opening that URL — logged in or not — gets dropped straight into
+// a stripped-down, read-only view of just that one project, bypassing the
+// normal per-user login gate entirely. Firestore's security rules allow
+// unauthenticated reads of a project doc specifically when
+// publicShareEnabled == true, so this works without any auth.
+const shareProjectId = new URLSearchParams(location.search).get("share");
+const isPublicShareMode = !!shareProjectId;
+let publicShareUnsub = null;
+
 function getActiveProject() {
   return state.projects.find((p) => p.id === currentProjectId) || state.projects[0];
 }
@@ -261,6 +345,7 @@ function createDefaultProjectForCurrentUser() {
   const project = makeProject("マイプロジェクト", true);
   project.ownerUid = currentUser.uid;
   project.ownerEmail = currentUser.email;
+  project.ownerPlan = effectivePlanForCurrentUser();
   project.memberEmails = buildMemberEmails(project);
   projectsCollection
     .doc(project.id)
@@ -289,6 +374,8 @@ function migrateLegacyDataIfNeeded() {
           name: p.name || "マイプロジェクト",
           ownerUid: currentUser.uid,
           ownerEmail: email,
+          ownerPlan: effectivePlanForCurrentUser(),
+          publicShareEnabled: false,
           editors: [],
           viewers: [],
           memberEmails: [email],
@@ -326,6 +413,8 @@ function handleProjectsSnapshot(querySnap) {
       name: data.name || "無題のプロジェクト",
       ownerUid: data.ownerUid || null,
       ownerEmail: data.ownerEmail || null,
+      ownerPlan: data.ownerPlan || "free",
+      publicShareEnabled: !!data.publicShareEnabled,
       editors: Array.isArray(data.editors) ? data.editors : [],
       viewers: Array.isArray(data.viewers) ? data.viewers : [],
       memberEmails: Array.isArray(data.memberEmails) ? data.memberEmails : [],
@@ -352,11 +441,62 @@ function handleProjectsError(err) {
   console.error("Firestore projects listen failed", err);
 }
 
+function startPublicShareView(projectId) {
+  if (publicShareUnsub) return;
+  const banner = document.getElementById("public-share-banner");
+  if (banner) banner.classList.remove("hidden");
+
+  publicShareUnsub = projectsCollection.doc(projectId).onSnapshot(
+    (snap) => {
+      if (!snap.exists || !snap.data().publicShareEnabled) {
+        renderPublicShareError();
+        return;
+      }
+      const data = snap.data();
+      const project = {
+        id: snap.id,
+        name: data.name || "無題のプロジェクト",
+        ownerUid: data.ownerUid || null,
+        ownerEmail: data.ownerEmail || null,
+        ownerPlan: data.ownerPlan || "free",
+        publicShareEnabled: true,
+        editors: Array.isArray(data.editors) ? data.editors : [],
+        viewers: Array.isArray(data.viewers) ? data.viewers : [],
+        memberEmails: Array.isArray(data.memberEmails) ? data.memberEmails : [],
+        columns: Array.isArray(data.columns) ? data.columns : [],
+        trash: [],
+      };
+      state.projects = [project];
+      currentProjectId = project.id;
+      renderAll();
+    },
+    (err) => {
+      console.error("public share listen failed", err);
+      renderPublicShareError();
+    }
+  );
+}
+
+function renderPublicShareError() {
+  board.innerHTML =
+    '<p class="table-empty" style="width:100%">このリンクは無効です。共有が解除されたか、URLが間違っている可能性があります。</p>';
+  projectTitleEl.textContent = "📋 Kanban Board";
+}
+
 function renderAll() {
   renderProjectList();
+  updatePlanNote();
   const project = getActiveProject();
   projectTitleEl.textContent = "📋 " + (project ? project.name : "Kanban Board");
   applyDrawerState();
+
+  // If the active project's plan doesn't allow the currently-selected view
+  // (e.g. switching into a Free-plan project while on Calendar), fall back
+  // to Board rather than showing a blank/locked panel.
+  const planViews = planLimitsFor(effectivePlanForProject(project)).views;
+  if (!planViews.includes(currentView)) {
+    currentView = "board";
+  }
   applyViewState();
 
   const editable = canEditProject(project);
@@ -522,6 +662,16 @@ logoutBtn.addEventListener("click", () => {
 auth.onAuthStateChanged((user) => {
   currentUser = user;
 
+  if (isPublicShareMode) {
+    // Public read-only mode: never show the login gate, never start the
+    // normal per-user project listener — just load the one shared project.
+    document.body.classList.add("public-share-mode");
+    authModal.classList.add("hidden");
+    if (user) ensureUserProfile();
+    startPublicShareView(shareProjectId);
+    return;
+  }
+
   if (user) {
     authModal.classList.add("hidden");
     userInfoEl.textContent = "👤 " + (user.displayName || user.email || "ログイン中");
@@ -564,10 +714,25 @@ const drawerToggleBtn = document.getElementById("drawer-toggle-btn");
 const projectTitleEl = document.getElementById("project-title");
 const projectListEl = document.getElementById("project-list");
 const addProjectBtn = document.getElementById("add-project-btn");
+const planNoteEl = document.getElementById("plan-note");
+const planNoteLinkBtn = document.getElementById("plan-note-link");
 
 function applyDrawerState() {
   projectDrawer.classList.toggle("closed", !drawerOpen);
 }
+
+function updatePlanNote() {
+  const plan = effectivePlanForCurrentUser();
+  const limits = planLimitsFor(plan);
+  const shouldShow = !!currentUser && plan === "free";
+  planNoteEl.classList.toggle("hidden", !shouldShow);
+  if (shouldShow) {
+    planNoteEl.querySelector("span").textContent =
+      `🔒 Freeプランでは最大${limits.maxProjects}プロジェクトまで`;
+  }
+}
+
+planNoteEl.addEventListener("click", () => openPlansModal());
 
 drawerToggleBtn.addEventListener("click", () => {
   drawerOpen = !drawerOpen;
@@ -646,9 +811,17 @@ function renderProjectList() {
 
 addProjectBtn.addEventListener("click", () => {
   if (!currentUser) return;
+  const plan = effectivePlanForCurrentUser();
+  const limits = planLimitsFor(plan);
+  const ownedCount = state.projects.filter((p) => p.ownerEmail === currentUser.email).length;
+  if (ownedCount >= limits.maxProjects) {
+    openPlansModal();
+    return;
+  }
   const project = makeProject("新しいプロジェクト", false);
   project.ownerUid = currentUser.uid;
   project.ownerEmail = currentUser.email;
+  project.ownerPlan = plan;
   project.memberEmails = buildMemberEmails(project);
   currentProjectId = project.id;
   localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
@@ -665,6 +838,15 @@ const inviteNote = document.getElementById("invite-note");
 const inviteEmailInput = document.getElementById("invite-email-input");
 const inviteRoleSelect = document.getElementById("invite-role-select");
 const inviteSubmitBtn = document.getElementById("invite-submit-btn");
+const publicShareSection = document.getElementById("public-share-section");
+const publicShareToggle = document.getElementById("public-share-toggle");
+const publicShareLinkRow = document.getElementById("public-share-link-row");
+const publicShareUrlInput = document.getElementById("public-share-url");
+const publicShareCopyBtn = document.getElementById("public-share-copy-btn");
+
+function buildShareUrl(projectId) {
+  return location.origin + location.pathname + "?share=" + projectId;
+}
 
 let membersModalProjectId = null;
 
@@ -762,7 +944,48 @@ function renderMembersModal() {
 
   inviteForm.classList.toggle("hidden", !isOwner);
   inviteNote.classList.toggle("hidden", !isOwner);
+
+  const canManageShare = isOwner && effectivePlanForProject(project) === "business";
+  publicShareSection.classList.toggle("hidden", !canManageShare);
+  if (canManageShare) {
+    publicShareToggle.checked = !!project.publicShareEnabled;
+    publicShareLinkRow.classList.toggle("hidden", !project.publicShareEnabled);
+    if (project.publicShareEnabled) {
+      publicShareUrlInput.value = buildShareUrl(project.id);
+    }
+  }
 }
+
+publicShareToggle.addEventListener("change", () => {
+  const project = state.projects.find((p) => p.id === membersModalProjectId);
+  if (!project || !isOwnerOfProject(project) || effectivePlanForProject(project) !== "business") {
+    publicShareToggle.checked = false;
+    return;
+  }
+  project.publicShareEnabled = publicShareToggle.checked;
+  saveProject(project);
+  renderMembersModal();
+});
+
+publicShareCopyBtn.addEventListener("click", () => {
+  const value = publicShareUrlInput.value;
+  if (!value) return;
+  const done = () => {
+    publicShareCopyBtn.textContent = "コピーしました";
+    setTimeout(() => {
+      publicShareCopyBtn.textContent = "コピー";
+    }, 1500);
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(value).then(done).catch(() => {
+      publicShareUrlInput.select();
+    });
+  } else {
+    publicShareUrlInput.select();
+    document.execCommand("copy");
+    done();
+  }
+});
 
 inviteSubmitBtn.addEventListener("click", () => {
   const project = state.projects.find((p) => p.id === membersModalProjectId);
@@ -869,27 +1092,80 @@ profileModal.addEventListener("click", (e) => {
   if (e.target === profileModal) profileModal.classList.add("hidden");
 });
 
-profileSaveBtn.addEventListener("click", () => {
-  if (!currentUser) return;
-  const name = profileNameInput.value.trim() || (userProfile && userProfile.displayName) || currentUser.email;
-  const plan = profilePlanSelect.value;
-  userProfile = Object.assign({}, userProfile, {
-    displayName: name,
-    plan,
-    email: currentUser.email || "",
+// Saves a plan change to the user's profile AND syncs the denormalized
+// `ownerPlan` field onto every project this user owns (so the plan-based
+// feature gating on those projects updates immediately for everyone with
+// access to them). Used by both the profile modal and the plans modal's
+// quick-select buttons.
+function savePlanForCurrentUser(plan) {
+  if (!currentUser) return Promise.resolve();
+  userProfile = Object.assign({}, userProfile, { plan, email: currentUser.email || "" });
+
+  const ownedProjects = state.projects.filter((p) => p.ownerEmail === currentUser.email);
+  ownedProjects.forEach((p) => {
+    p.ownerPlan = plan;
+    saveProject(p);
   });
 
-  usersCollection
+  return usersCollection
     .doc(currentUser.uid)
     .set(userProfile, { merge: true })
     .then(() => {
       updateUserInfoDisplay();
-      profileModal.classList.add("hidden");
+      updatePlanNote();
+      applyViewState();
     })
     .catch((err) => {
-      console.error("failed to save profile", err);
-      alert("プロフィールの保存に失敗しました。");
+      console.error("failed to save plan", err);
+      alert("プランの保存に失敗しました。");
     });
+}
+
+profileSaveBtn.addEventListener("click", () => {
+  if (!currentUser) return;
+  const name = profileNameInput.value.trim() || (userProfile && userProfile.displayName) || currentUser.email;
+  const plan = profilePlanSelect.value;
+  userProfile = Object.assign({}, userProfile, { displayName: name });
+
+  savePlanForCurrentUser(plan).then(() => {
+    profileModal.classList.add("hidden");
+  });
+});
+
+// ---------- plans / upgrade modal ----------
+const plansModal = document.getElementById("plans-modal");
+const plansCloseBtn = document.getElementById("plans-close-btn");
+
+function openPlansModal() {
+  if (!currentUser) return;
+  refreshPlansModalState();
+  plansModal.classList.remove("hidden");
+}
+
+function refreshPlansModalState() {
+  const current = effectivePlanForCurrentUser();
+  document.querySelectorAll(".plan-column").forEach((col) => {
+    const isCurrent = col.dataset.plan === current;
+    col.classList.toggle("current", isCurrent);
+    const btn = col.querySelector(".plan-select-btn");
+    if (btn) {
+      btn.disabled = isCurrent;
+      btn.textContent = isCurrent ? "現在のプラン" : "このプランにする";
+    }
+  });
+}
+
+document.querySelectorAll(".plan-select-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    savePlanForCurrentUser(btn.dataset.plan).then(() => {
+      refreshPlansModalState();
+    });
+  });
+});
+
+plansCloseBtn.addEventListener("click", () => plansModal.classList.add("hidden"));
+plansModal.addEventListener("click", (e) => {
+  if (e.target === plansModal) plansModal.classList.add("hidden");
 });
 
 // ---------- view tabs ----------
@@ -903,8 +1179,12 @@ const viewPanels = {
 };
 
 function applyViewState() {
+  const project = getActiveProject();
+  const planViews = planLimitsFor(effectivePlanForProject(project)).views;
   viewTabButtons.forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.view === currentView);
+    const allowed = planViews.includes(tab.dataset.view);
+    tab.classList.toggle("active", tab.dataset.view === currentView && allowed);
+    tab.classList.toggle("locked", !allowed);
   });
   Object.keys(viewPanels).forEach((key) => {
     viewPanels[key].classList.toggle("hidden", key !== currentView);
@@ -913,6 +1193,12 @@ function applyViewState() {
 
 viewTabButtons.forEach((tab) => {
   tab.addEventListener("click", () => {
+    const project = getActiveProject();
+    const planViews = planLimitsFor(effectivePlanForProject(project)).views;
+    if (!planViews.includes(tab.dataset.view)) {
+      openPlansModal();
+      return;
+    }
     currentView = tab.dataset.view;
     localStorage.setItem(CURRENT_VIEW_KEY, currentView);
     renderAll();
@@ -1638,6 +1924,7 @@ const modalCoverImageInput = document.getElementById("modal-cover-image-input");
 const modalCoverImageLabel = document.getElementById("modal-cover-image-label");
 const modalCoverRemoveBtn = document.getElementById("modal-cover-remove-btn");
 const modalCoverUploadingEl = document.getElementById("modal-cover-uploading");
+const modalAttachmentHintEl = document.getElementById("modal-attachment-hint");
 
 function setAttachmentUploading(isUploading) {
   if (isUploading) {
@@ -1746,8 +2033,10 @@ modalCoverImageInput.addEventListener("change", async () => {
   const file = modalCoverImageInput.files[0];
   modalCoverImageInput.value = "";
   if (!file || !activeCardRef) return;
-  if (file.size > MAX_FILE_SIZE) {
-    alert("ファイルサイズは5MBまでです。");
+  const coverProject = findCard(activeCardRef.columnId, activeCardRef.cardId)?.project;
+  const coverLimit = maxFileSizeBytesForProject(coverProject);
+  if (coverLimit !== Infinity && file.size > coverLimit) {
+    alert(`ファイルサイズは${formatMaxSize(coverLimit)}までです。`);
     return;
   }
   const targetColumnId = activeCardRef.columnId;
@@ -1816,6 +2105,9 @@ function populateModal(card) {
   renderCoverSwatches(card.cover || null);
   pendingCommentFile = null;
   renderPendingFile();
+
+  const project = getActiveProject();
+  modalAttachmentHintEl.textContent = "1ファイルあたり" + formatMaxSize(maxFileSizeBytesForProject(project)) + "まで";
 }
 
 function renderAttachments(attachments) {
@@ -1873,8 +2165,10 @@ modalAttachmentInput.addEventListener("change", async () => {
   const file = modalAttachmentInput.files[0];
   modalAttachmentInput.value = "";
   if (!file || !activeCardRef) return;
-  if (file.size > MAX_FILE_SIZE) {
-    alert("ファイルサイズは5MBまでです。");
+  const attachProject = findCard(activeCardRef.columnId, activeCardRef.cardId)?.project;
+  const attachLimit = maxFileSizeBytesForProject(attachProject);
+  if (attachLimit !== Infinity && file.size > attachLimit) {
+    alert(`ファイルサイズは${formatMaxSize(attachLimit)}までです。`);
     return;
   }
   const targetColumnId = activeCardRef.columnId;
@@ -1903,8 +2197,12 @@ modalCommentFileInput.addEventListener("change", () => {
   const file = modalCommentFileInput.files[0];
   modalCommentFileInput.value = "";
   if (!file) return;
-  if (file.size > MAX_FILE_SIZE) {
-    alert("ファイルサイズは5MBまでです。");
+  const commentProject = activeCardRef
+    ? findCard(activeCardRef.columnId, activeCardRef.cardId)?.project
+    : getActiveProject();
+  const commentLimit = maxFileSizeBytesForProject(commentProject);
+  if (commentLimit !== Infinity && file.size > commentLimit) {
+    alert(`ファイルサイズは${formatMaxSize(commentLimit)}までです。`);
     return;
   }
   pendingCommentFile = file;

@@ -14,9 +14,16 @@
         <button id="add-project-btn" class="add-project-btn" title="プロジェクトを追加">+</button>
       </div>
       <div id="project-list" class="project-list"></div>
+      <div id="plan-note" class="plan-note hidden">
+        <span>🔒 Freeプランでは最大10プロジェクトまで</span>
+        <button id="plan-note-link" class="link-btn small">プランを見る</button>
+      </div>
     </aside>
 
     <div class="main-area">
+      <div id="public-share-banner" class="public-share-banner hidden">
+        🔗 公開ビュー(閲覧専用) ・ <a id="public-share-login-link" href="./">ログインして編集する</a>
+      </div>
       <header class="app-header">
         <button id="drawer-toggle-btn" class="drawer-toggle-btn" title="プロジェクト一覧の表示切替">☰</button>
         <h1 id="project-title">📋 Kanban Board</h1>
@@ -136,7 +143,7 @@
             <div id="modal-attachment-uploading" class="upload-status hidden">
               <span class="spinner"></span>アップロード中...
             </div>
-            <p class="field-hint">1ファイルあたり5MBまで</p>
+            <p id="modal-attachment-hint" class="field-hint">1ファイルあたり5MBまで</p>
           </div>
         </div>
 
@@ -187,6 +194,19 @@
       <button id="members-close-btn" class="modal-close-x">✕</button>
       <h2 id="members-modal-title">👥 メンバー</h2>
       <div id="members-list" class="members-list"></div>
+
+      <div id="public-share-section" class="public-share-section hidden">
+        <div class="member-group-label">🔗 公開共有(Businessプラン)</div>
+        <label class="public-share-toggle-row">
+          <input type="checkbox" id="public-share-toggle" />
+          リンクを知っている人は誰でも閲覧できるようにする
+        </label>
+        <div id="public-share-link-row" class="public-share-link-row hidden">
+          <input type="text" id="public-share-url" readonly />
+          <button id="public-share-copy-btn" class="link-btn small">コピー</button>
+        </div>
+      </div>
+
       <div id="invite-form" class="invite-form hidden">
         <input type="email" id="invite-email-input" placeholder="メールアドレス" />
         <select id="invite-role-select">
@@ -230,6 +250,50 @@
       <div class="modal-actions">
         <button id="profile-save-btn" class="confirm-add">保存</button>
       </div>
+    </div>
+  </div>
+
+  <!-- プラン比較モーダル -->
+  <div id="plans-modal" class="modal-overlay hidden">
+    <div class="modal-content plans-content">
+      <button id="plans-close-btn" class="modal-close-x">✕</button>
+      <h2>🚀 プランをアップグレード</h2>
+      <p class="modal-sub">プロジェクト数・表示形式・添付ファイルの上限を解放できます。</p>
+
+      <div class="plans-columns">
+        <div class="plan-column" data-plan="free">
+          <h3>Free</h3>
+          <ul class="plan-feature-list">
+            <li>プロジェクト最大10個</li>
+            <li>ボード・テーブル表示のみ</li>
+            <li>添付ファイル 5MBまで/ファイル</li>
+          </ul>
+          <button class="plan-select-btn" data-plan="free">このプランにする</button>
+        </div>
+
+        <div class="plan-column" data-plan="pro">
+          <h3>Pro</h3>
+          <ul class="plan-feature-list">
+            <li>プロジェクト無制限</li>
+            <li>全ての表示形式(ボード/テーブル/カレンダー/タイムライン/ダッシュボード)</li>
+            <li>添付ファイル 150MBまで/ファイル</li>
+            <li>共同編集者の人数制限なし</li>
+          </ul>
+          <button class="plan-select-btn" data-plan="pro">このプランにする</button>
+        </div>
+
+        <div class="plan-column highlight" data-plan="business">
+          <h3>Business</h3>
+          <ul class="plan-feature-list">
+            <li>Proの全機能</li>
+            <li>添付ファイルサイズの上限なし</li>
+            <li>プロジェクトの公開共有リンクを発行可能(未招待の人でも閲覧可)</li>
+          </ul>
+          <button class="plan-select-btn" data-plan="business">このプランにする</button>
+        </div>
+      </div>
+
+      <p class="field-hint">※実際の決済(Stripe連携)は今後対応予定です。現時点ではプランの切り替えのみ行われます。</p>
     </div>
   </div>
 
