@@ -41,6 +41,7 @@
         <div class="header-right">
           <div id="member-avatars" class="member-avatar-stack hidden" title="メンバーを表示"></div>
           <span id="user-info" class="user-info hidden"></span>
+          <button id="calendar-sync-btn" class="calendar-sync-btn hidden" title="Googleカレンダーと同期(完了した予定の時間をタイトルが一致するカードの実績に反映)">🗓️ 同期</button>
           <button id="project-settings-btn" class="project-settings-btn hidden" title="プロジェクト設定(重要度・管理項目)">⚙️</button>
           <button id="public-share-btn" class="public-share-btn hidden" title="公開共有(Businessプラン)">🔗</button>
           <button id="trash-btn" class="trash-btn hidden" title="ゴミ箱">🗑️<span id="trash-count" class="trash-count hidden">0</span></button>
@@ -152,6 +153,11 @@
           <div class="modal-field">
             <label>期日</label>
             <input type="date" id="modal-due-date" />
+          </div>
+
+          <div class="modal-field">
+            <label>実績時間(Googleカレンダー連携)</label>
+            <div id="modal-actual-time" class="actual-time-display">記録なし</div>
           </div>
 
           <div class="modal-field">

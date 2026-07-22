@@ -62,6 +62,7 @@ function makeProject(name, seedSampleData) {
     trash: [],
     priorityOptions: null,
     customFields: [],
+    syncedCalendarEventIds: [],
   };
 }
 
@@ -571,6 +572,7 @@ function handleProjectsSnapshot(querySnap) {
       trash: Array.isArray(data.trash) ? data.trash : [],
       priorityOptions: Array.isArray(data.priorityOptions) ? data.priorityOptions : null,
       customFields: Array.isArray(data.customFields) ? data.customFields : [],
+      syncedCalendarEventIds: Array.isArray(data.syncedCalendarEventIds) ? data.syncedCalendarEventIds : [],
     });
   });
 
@@ -661,6 +663,7 @@ function renderAll() {
   trashBtn.classList.toggle("hidden", !currentUser || !editable);
   publicShareBtn.classList.toggle("hidden", !currentUser || !project || !isOwnerOfProject(project));
   projectSettingsBtn.classList.toggle("hidden", !currentUser || !project || !editable);
+  calendarSyncBtn.classList.toggle("hidden", !currentUser || !project || !editable);
   renderMemberAvatars();
 
   if (currentView === "board") renderBoard();
@@ -718,6 +721,164 @@ googleLoginBtn.addEventListener("click", () => {
     alert("ログインに失敗しました: " + err.message);
   });
 });
+
+// ---------- Google Calendar sync (実績時間の反映) ----------
+// Separate provider instance from the normal login `provider` above: this
+// one additionally requests read-only Calendar access, and is only ever
+// used when the user explicitly clicks "🗓️ 同期" — logging in normally
+// never asks for calendar permission. Clicking sync re-prompts Google for
+// this extra scope (incremental auth) and hands back a short-lived OAuth
+// access token, which is cached in memory for the rest of this page load.
+const calendarProvider = new firebase.auth.GoogleAuthProvider();
+calendarProvider.addScope("https://www.googleapis.com/auth/calendar.readonly");
+
+const calendarSyncBtn = document.getElementById("calendar-sync-btn");
+
+let calendarAccessToken = null;
+let calendarAccessTokenExpiresAt = 0;
+
+// How far back to look for completed calendar events on each sync. Wide
+// enough that the user doesn't have to sync every single day, small enough
+// to keep each Calendar API call cheap and fast.
+const CALENDAR_SYNC_LOOKBACK_HOURS = 24 * 14;
+
+async function getCalendarAccessToken() {
+  const now = Date.now();
+  if (calendarAccessToken && now < calendarAccessTokenExpiresAt) return calendarAccessToken;
+
+  const result = await auth.signInWithPopup(calendarProvider);
+  const credential = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
+  if (!credential || !credential.accessToken) {
+    throw new Error("Googleカレンダーへのアクセス許可を取得できませんでした");
+  }
+  calendarAccessToken = credential.accessToken;
+  // Google's OAuth access tokens are typically valid ~1 hour; Firebase
+  // doesn't expose the exact expiry, so cache conservatively for 50 minutes
+  // and just re-prompt after that rather than risk using a stale token.
+  calendarAccessTokenExpiresAt = now + 50 * 60 * 1000;
+  return calendarAccessToken;
+}
+
+async function fetchRecentCalendarEvents(accessToken) {
+  const now = new Date();
+  const windowStart = new Date(now.getTime() - CALENDAR_SYNC_LOOKBACK_HOURS * 60 * 60 * 1000);
+  const params = new URLSearchParams({
+    timeMin: windowStart.toISOString(),
+    timeMax: now.toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "250",
+  });
+
+  const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const message = (body.error && body.error.message) || `Googleカレンダーの取得に失敗しました(${res.status})`;
+    throw new Error(message);
+  }
+  const data = await res.json();
+  return data.items || [];
+}
+
+function minutesBetween(startIso, endIso) {
+  const ms = new Date(endIso) - new Date(startIso);
+  return Math.max(0, Math.round(ms / 60000));
+}
+
+function formatMinutesJP(totalMinutes) {
+  const mins = Math.max(0, Math.round(totalMinutes || 0));
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h && m) return `${h}時間${m}分`;
+  if (h) return `${h}時間`;
+  return `${m}分`;
+}
+
+// Pulls completed events (end time already in the past) from the signed-in
+// user's primary Google Calendar and, for each one not already applied,
+// looks for a card in the active project whose title exactly matches the
+// event's title. Exactly one match → that duration gets added to the
+// card's 実績 (actual time). No match, or more than one same-titled card →
+// skipped (so an ambiguous title never silently attaches to the wrong
+// card). Every processed event id is remembered on the project so re-
+// syncing never double-counts it.
+async function syncGoogleCalendar() {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+
+  calendarSyncBtn.disabled = true;
+  const originalLabel = calendarSyncBtn.textContent;
+  calendarSyncBtn.textContent = "同期中...";
+
+  try {
+    const accessToken = await getCalendarAccessToken();
+    const events = await fetchRecentCalendarEvents(accessToken);
+
+    project.syncedCalendarEventIds = project.syncedCalendarEventIds || [];
+    const alreadySynced = new Set(project.syncedCalendarEventIds);
+    const now = new Date();
+
+    let appliedCount = 0;
+    let ambiguousCount = 0;
+
+    events.forEach((ev) => {
+      if (!ev.id || alreadySynced.has(ev.id)) return;
+
+      const start = ev.start && (ev.start.dateTime || ev.start.date);
+      const end = ev.end && (ev.end.dateTime || ev.end.date);
+      if (!start || !end) return;
+      if (new Date(end) > now) return; // still ongoing / in the future — wait until it's actually over
+
+      const title = (ev.summary || "").trim();
+      if (!title) return;
+
+      const matches = [];
+      project.columns.forEach((column) => {
+        column.cards.forEach((card) => {
+          if ((card.text || "").trim() === title) matches.push(card);
+        });
+      });
+
+      alreadySynced.add(ev.id);
+      project.syncedCalendarEventIds.push(ev.id);
+
+      if (matches.length === 1) {
+        matches[0].actualMinutes = (matches[0].actualMinutes || 0) + minutesBetween(start, end);
+        appliedCount++;
+      } else if (matches.length > 1) {
+        ambiguousCount++;
+      }
+    });
+
+    if (appliedCount || ambiguousCount) {
+      saveProject(project);
+      syncModalIfOpen();
+    }
+
+    if (appliedCount) {
+      let msg = `✅ ${appliedCount}件の予定を実績としてカードに反映しました。`;
+      if (ambiguousCount) msg += ` (同名カードが複数あり${ambiguousCount}件はスキップしました)`;
+      showBillingToast(msg);
+    } else if (ambiguousCount) {
+      showBillingToast(
+        `⚠️ 同名のカードが複数あり、${ambiguousCount}件の予定はどのカードか特定できずスキップしました。`,
+        true
+      );
+    } else {
+      showBillingToast("反映できる新しい予定は見つかりませんでした。");
+    }
+  } catch (err) {
+    console.error("calendar sync failed", err);
+    showBillingToast("Googleカレンダーとの同期に失敗しました: " + err.message, true);
+  } finally {
+    calendarSyncBtn.disabled = false;
+    calendarSyncBtn.textContent = originalLabel;
+  }
+}
+
+calendarSyncBtn.addEventListener("click", syncGoogleCalendar);
 
 // ---------- email/password authentication ----------
 const emailAuthEmailInput = document.getElementById("email-auth-email");
@@ -854,6 +1015,7 @@ auth.onAuthStateChanged((user) => {
     trashBtn.classList.add("hidden");
     publicShareBtn.classList.add("hidden");
     projectSettingsBtn.classList.add("hidden");
+    calendarSyncBtn.classList.add("hidden");
     drawerPlanStatusEl.classList.add("hidden");
     trashModal.classList.add("hidden");
     membersModal.classList.add("hidden");
@@ -2014,6 +2176,12 @@ function renderBoard() {
         b.textContent = "📎 " + card.attachments.length;
         badges.appendChild(b);
       }
+      if (card.actualMinutes) {
+        const b = document.createElement("span");
+        b.className = "badge actual-time-badge";
+        b.textContent = "⏱ " + formatMinutesJP(card.actualMinutes);
+        badges.appendChild(b);
+      }
       if (badges.children.length) cardEl.appendChild(badges);
 
       if (editable) {
@@ -2892,6 +3060,7 @@ const modalCoverImageLabel = document.getElementById("modal-cover-image-label");
 const modalCoverRemoveBtn = document.getElementById("modal-cover-remove-btn");
 const modalCoverUploadingEl = document.getElementById("modal-cover-uploading");
 const modalAttachmentHintEl = document.getElementById("modal-attachment-hint");
+const modalActualTimeEl = document.getElementById("modal-actual-time");
 
 function setAttachmentUploading(isUploading) {
   if (isUploading) {
@@ -3154,6 +3323,7 @@ function populateModal(card, project) {
   modalTitleInput.value = card.text;
   modalStartDate.value = card.startDate || "";
   modalDueDate.value = card.dueDate || "";
+  modalActualTimeEl.textContent = card.actualMinutes ? formatMinutesJP(card.actualMinutes) : "記録なし";
   renderModalPriorityOptions(project, card.priority || "");
   renderModalCustomFields(project, card);
   modalNotes.innerHTML = card.notes || "";
@@ -3711,6 +3881,10 @@ function syncModalIfOpen() {
   renderCoverBanner(found.card.cover || null);
   renderCoverSwatches(found.card.cover || null);
   updateAttachmentHint();
+  // Read-only (calendar-derived), so safe to refresh live too.
+  modalActualTimeEl.textContent = found.card.actualMinutes
+    ? formatMinutesJP(found.card.actualMinutes)
+    : "記録なし";
 }
 
 // ---------- generic confirm modal ----------

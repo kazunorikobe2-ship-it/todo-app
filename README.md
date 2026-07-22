@@ -200,3 +200,17 @@ StripeダッシュボードでWebhookエンドポイントを追加する:
 - 購読するイベント: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`
 
 作成後に表示される signing secret を `STRIPE_WEBHOOK_SECRET` に設定する。
+
+## Googleカレンダー連携(実績時間の反映)
+
+ヘッダーの「🗓️ 同期」ボタンを押すと、サインイン中のGoogleアカウントのメインカレンダーから終了済みの予定(直近2週間分)を取得し、予定のタイトルとカードのタイトルが完全一致するカードに、その予定の所要時間を「実績時間」として自動的に加算する(カードモーダルの期日の下、およびボードのカード上に⏱バッジで表示)。同一の予定を二重に加算しないよう、反映済みの予定IDは `projects/{id}.syncedCalendarEventIds` に記録している。同名のカードが複数ある場合はどちらに反映すべきか特定できないためスキップされる。
+
+常時ログインとは別に、同期ボタンを押した時だけGoogle側にカレンダーの読み取り許可(`https://www.googleapis.com/auth/calendar.readonly`)を追加で求めるポップアップが出る(通常のログインではカレンダー権限は要求されない)。取得したアクセストークンはページを開いている間だけメモリ上に保持し、リロードすれば消える(サーバー側にはリフレッシュトークン等を一切保存していない)。
+
+利用には以下の設定が一度だけ必要:
+
+1. [Google Cloud Console](https://console.cloud.google.com/) で、Firebaseプロジェクトと同じGoogle Cloudプロジェクトを開く(Firebaseコンソール → プロジェクトの設定 に表示されるプロジェクトIDと同じもの)。
+2. 「APIとサービス」→「ライブラリ」で **Google Calendar API** を検索して有効化する。
+3. 「APIとサービス」→「OAuth同意画面」を開き、公開ステータスが「テスト中」の場合は「テストユーザー」にこの機能を使う各Googleアカウント(自分自身や招待したメンバーのメールアドレス)を追加する。公開ステータスが「本番環境」で `calendar.readonly` のような機密性の高いスコープを使う場合は、Googleの審査を受けていないと初回に警告画面が出ることがある。
+
+Stripeの時のような追加のAPIキーやWebhookエンドポイントの設定は不要(既存のFirebase Google ログイン用のOAuthクライアントをそのまま利用している)。
