@@ -22,25 +22,35 @@ function makeColumn(title, cards) {
 }
 
 function makeProject(name, seedSampleData) {
-  if (seedSampleData) {
-    return {
-      id: uid(),
-      name,
-      columns: [
+  const columns = seedSampleData
+    ? [
         makeColumn("To Do", [
           makeCard("カードをクリックすると詳細を編集できます"),
           makeCard("「+ カードを追加」で新規作成"),
         ]),
         makeColumn("In Progress"),
         makeColumn("Done"),
-      ],
-    };
-  }
+      ]
+    : [makeColumn("To Do"), makeColumn("In Progress"), makeColumn("Done")];
+
   return {
     id: uid(),
     name,
-    columns: [makeColumn("To Do"), makeColumn("In Progress"), makeColumn("Done")],
+    ownerUid: null,
+    ownerEmail: null,
+    editors: [],
+    viewers: [],
+    memberEmails: [],
+    columns,
+    trash: [],
   };
+}
+
+function buildMemberEmails(project) {
+  const set = new Set(
+    [project.ownerEmail, ...(project.editors || []), ...(project.viewers || [])].filter(Boolean)
+  );
+  return Array.from(set);
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -137,36 +147,17 @@ function priorityLabel(p) {
 }
 
 // ---------- state & firestore ----------
-function defaultState() {
-  return {
-    projects: [makeProject("マイプロジェクト", true)],
-    trash: [],
-  };
-}
+// Each project is its own Firestore document under `projects`, tagged with
+// ownerEmail / editors / viewers / memberEmails so security rules can scope
+// access per user. `state.projects` only ever holds projects the signed-in
+// user actually has access to (driven by the query below).
+const projectsCollection = db.collection("projects");
+const legacyBoardRef = db.collection("kanban").doc("board");
 
-// Handles both the current {projects:[...], trash:[...]} shape and the
-// legacy single-board {columns:[...], trash:[...]} shape from before
-// the project concept existed, so nobody's existing board data is lost.
-function migrateState(data) {
-  if (data && Array.isArray(data.projects) && data.projects.length) {
-    return {
-      projects: data.projects,
-      trash: Array.isArray(data.trash) ? data.trash : [],
-    };
-  }
-  if (data && Array.isArray(data.columns)) {
-    return {
-      projects: [{ id: uid(), name: "マイプロジェクト", columns: data.columns }],
-      trash: Array.isArray(data.trash) ? data.trash : [],
-    };
-  }
-  return defaultState();
-}
-
-const boardRef = db.collection("kanban").doc("board");
-
-let state = { projects: [], trash: [] };
-let unsubscribeBoard = null;
+let state = { projects: [] };
+let unsubscribeProjects = null;
+let defaultProjectCreationAttempted = false;
+let migrationAttempted = false;
 
 const CURRENT_PROJECT_KEY = "kanban-current-project";
 const DRAWER_OPEN_KEY = "kanban-drawer-open";
@@ -185,40 +176,135 @@ function getActiveProject() {
 }
 
 function ensureActiveProject() {
-  if (!state.projects.length) {
-    state.projects.push(makeProject("マイプロジェクト", true));
-  }
   if (!state.projects.find((p) => p.id === currentProjectId)) {
-    currentProjectId = state.projects[0].id;
-    localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
+    currentProjectId = state.projects.length ? state.projects[0].id : null;
+    if (currentProjectId) localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
   }
 }
 
-function saveState() {
-  boardRef.set(state).catch((err) => {
-    console.error("Firestore write failed", err);
-    alert(
-      "保存に失敗しました。Firestoreのセキュリティルールでログイン済みユーザーの読み書きが許可されているか確認してください。"
-    );
+function getRole(project) {
+  if (!currentUser || !project) return null;
+  const email = currentUser.email;
+  if (project.ownerEmail === email) return "owner";
+  if ((project.editors || []).includes(email)) return "editor";
+  if ((project.viewers || []).includes(email)) return "viewer";
+  return null;
+}
+
+function canEditProject(project) {
+  const role = getRole(project);
+  return role === "owner" || role === "editor";
+}
+
+function isOwnerOfProject(project) {
+  return getRole(project) === "owner";
+}
+
+function saveProject(project) {
+  projectsCollection
+    .doc(project.id)
+    .set(project)
+    .catch((err) => {
+      console.error("Firestore write failed", err);
+      alert("保存に失敗しました。このプロジェクトへの編集権限があるか確認してください。");
+    });
+}
+
+function createDefaultProjectForCurrentUser() {
+  if (defaultProjectCreationAttempted) return;
+  defaultProjectCreationAttempted = true;
+  const project = makeProject("マイプロジェクト", true);
+  project.ownerUid = currentUser.uid;
+  project.ownerEmail = currentUser.email;
+  project.memberEmails = buildMemberEmails(project);
+  projectsCollection
+    .doc(project.id)
+    .set(project)
+    .catch((err) => console.error("failed to create default project", err));
+}
+
+// One-time migration of the old single-document board (from before the
+// project/user concept existed) into the new per-project documents, owned
+// by whoever happens to run this first after the update. Returns a promise
+// so the caller can wait for it before starting the live query listener
+// (otherwise the listener can race the migration and create a duplicate
+// blank default project).
+function migrateLegacyDataIfNeeded() {
+  return legacyBoardRef
+    .get()
+    .then((snap) => {
+      if (!snap.exists) return;
+      const data = snap.data();
+      if (!data || data.migrated || !Array.isArray(data.projects) || !data.projects.length) return;
+
+      const email = currentUser.email;
+      const writes = data.projects.map((p) => {
+        const newProject = {
+          id: uid(),
+          name: p.name || "マイプロジェクト",
+          ownerUid: currentUser.uid,
+          ownerEmail: email,
+          editors: [],
+          viewers: [],
+          memberEmails: [email],
+          columns: Array.isArray(p.columns) ? p.columns : [],
+          trash: [],
+        };
+        return projectsCollection.doc(newProject.id).set(newProject);
+      });
+
+      return Promise.all(writes).then(() => legacyBoardRef.set({ migrated: true }, { merge: true }));
+    })
+    .catch((err) => console.error("legacy migration failed", err));
+}
+
+function startProjectsListener() {
+  if (unsubscribeProjects || !currentUser) return;
+  unsubscribeProjects = projectsCollection
+    .where("memberEmails", "array-contains", currentUser.email)
+    .onSnapshot(handleProjectsSnapshot, handleProjectsError);
+}
+
+function stopProjectsListener() {
+  if (unsubscribeProjects) {
+    unsubscribeProjects();
+    unsubscribeProjects = null;
+  }
+}
+
+function handleProjectsSnapshot(querySnap) {
+  const projects = [];
+  querySnap.forEach((doc) => {
+    const data = doc.data() || {};
+    projects.push({
+      id: doc.id,
+      name: data.name || "無題のプロジェクト",
+      ownerUid: data.ownerUid || null,
+      ownerEmail: data.ownerEmail || null,
+      editors: Array.isArray(data.editors) ? data.editors : [],
+      viewers: Array.isArray(data.viewers) ? data.viewers : [],
+      memberEmails: Array.isArray(data.memberEmails) ? data.memberEmails : [],
+      columns: Array.isArray(data.columns) ? data.columns : [],
+      trash: Array.isArray(data.trash) ? data.trash : [],
+    });
   });
-}
 
-function handleBoardSnapshot(snap) {
-  if (snap.exists) {
-    state = migrateState(snap.data());
-  } else {
-    state = defaultState();
-    boardRef.set(state);
+  if (!projects.length) {
+    createDefaultProjectForCurrentUser();
+    return;
   }
+
+  state.projects = projects;
   ensureActiveProject();
   renderAll();
   syncModalIfOpen();
   updateTrashBadge();
   if (!trashModal.classList.contains("hidden")) renderTrash();
+  if (!membersModal.classList.contains("hidden")) renderMembersModal();
 }
 
-function handleBoardError(err) {
-  console.error("Firestore listen failed", err);
+function handleProjectsError(err) {
+  console.error("Firestore projects listen failed", err);
 }
 
 function renderAll() {
@@ -227,6 +313,10 @@ function renderAll() {
   projectTitleEl.textContent = "📋 " + (project ? project.name : "Kanban Board");
   applyDrawerState();
   applyViewState();
+
+  const editable = canEditProject(project);
+  addColumnBtn.classList.toggle("hidden", !editable);
+  trashBtn.classList.toggle("hidden", !currentUser || !editable);
 
   if (currentView === "board") renderBoard();
   else if (currentView === "table") renderTableView();
@@ -265,10 +355,12 @@ auth.onAuthStateChanged((user) => {
     userInfoEl.textContent = "👤 " + (user.displayName || user.email || "ログイン中");
     userInfoEl.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
-    trashBtn.classList.remove("hidden");
 
-    if (!unsubscribeBoard) {
-      unsubscribeBoard = boardRef.onSnapshot(handleBoardSnapshot, handleBoardError);
+    if (!migrationAttempted) {
+      migrationAttempted = true;
+      migrateLegacyDataIfNeeded().finally(() => startProjectsListener());
+    } else {
+      startProjectsListener();
     }
   } else {
     authModal.classList.remove("hidden");
@@ -276,13 +368,14 @@ auth.onAuthStateChanged((user) => {
     logoutBtn.classList.add("hidden");
     trashBtn.classList.add("hidden");
     trashModal.classList.add("hidden");
+    membersModal.classList.add("hidden");
     closeCardModal();
     board.innerHTML = "";
+    state.projects = [];
+    defaultProjectCreationAttempted = false;
+    migrationAttempted = false;
 
-    if (unsubscribeBoard) {
-      unsubscribeBoard();
-      unsubscribeBoard = null;
-    }
+    stopProjectsListener();
   }
 });
 
@@ -314,52 +407,197 @@ function renderProjectList() {
       renderAll();
     });
 
+    const isOwner = isOwnerOfProject(project);
+    const editable = canEditProject(project);
+
     const nameInput = document.createElement("input");
     nameInput.className = "project-name-input";
     nameInput.value = project.name;
+    nameInput.disabled = !editable;
     nameInput.addEventListener("click", (e) => e.stopPropagation());
     nameInput.addEventListener("change", () => {
       project.name = nameInput.value.trim() || project.name;
-      saveState();
+      saveProject(project);
     });
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "project-delete-btn";
-    delBtn.textContent = "✕";
-    delBtn.title = "プロジェクトを削除";
-    delBtn.addEventListener("click", (e) => {
+    const membersBtn = document.createElement("button");
+    membersBtn.className = "project-members-btn";
+    membersBtn.textContent = "👥";
+    membersBtn.title = "メンバー";
+    membersBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (state.projects.length <= 1) {
-        alert("最後のプロジェクトは削除できません。");
-        return;
-      }
-      openConfirmModal({
-        title: "プロジェクトを削除しますか？",
-        message: `「${project.name}」とその中のすべてのリスト・カードが完全に削除されます。この操作は元に戻せません。`,
-        okLabel: "削除する",
-        onConfirm: () => {
-          state.projects = state.projects.filter((p) => p.id !== project.id);
-          if (currentProjectId === project.id) {
-            currentProjectId = state.projects[0].id;
-            localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
-          }
-          saveState();
-        },
-      });
+      openMembersModal(project.id);
     });
 
     row.appendChild(nameInput);
-    row.appendChild(delBtn);
+    row.appendChild(membersBtn);
+
+    if (isOwner) {
+      const delBtn = document.createElement("button");
+      delBtn.className = "project-delete-btn";
+      delBtn.textContent = "✕";
+      delBtn.title = "プロジェクトを削除";
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (state.projects.length <= 1) {
+          alert("最後のプロジェクトは削除できません。");
+          return;
+        }
+        openConfirmModal({
+          title: "プロジェクトを削除しますか？",
+          message: `「${project.name}」とその中のすべてのリスト・カードが完全に削除されます。この操作は元に戻せません。`,
+          okLabel: "削除する",
+          onConfirm: () => {
+            projectsCollection
+              .doc(project.id)
+              .delete()
+              .catch((err) => {
+                console.error("delete failed", err);
+                alert("削除に失敗しました。");
+              });
+          },
+        });
+      });
+      row.appendChild(delBtn);
+    }
+
     projectListEl.appendChild(row);
   });
 }
 
 addProjectBtn.addEventListener("click", () => {
+  if (!currentUser) return;
   const project = makeProject("新しいプロジェクト", false);
-  state.projects.push(project);
+  project.ownerUid = currentUser.uid;
+  project.ownerEmail = currentUser.email;
+  project.memberEmails = buildMemberEmails(project);
   currentProjectId = project.id;
   localStorage.setItem(CURRENT_PROJECT_KEY, currentProjectId);
-  saveState();
+  saveProject(project);
+});
+
+// ---------- members / invite modal ----------
+const membersModal = document.getElementById("members-modal");
+const membersCloseBtn = document.getElementById("members-close-btn");
+const membersModalTitle = document.getElementById("members-modal-title");
+const membersListEl = document.getElementById("members-list");
+const inviteForm = document.getElementById("invite-form");
+const inviteNote = document.getElementById("invite-note");
+const inviteEmailInput = document.getElementById("invite-email-input");
+const inviteRoleSelect = document.getElementById("invite-role-select");
+const inviteSubmitBtn = document.getElementById("invite-submit-btn");
+
+let membersModalProjectId = null;
+
+function openMembersModal(projectId) {
+  membersModalProjectId = projectId;
+  renderMembersModal();
+  membersModal.classList.remove("hidden");
+}
+
+function memberRow(email, roleLabel, onRemove) {
+  const row = document.createElement("div");
+  row.className = "member-row";
+
+  const label = document.createElement("span");
+  label.textContent = email;
+
+  const role = document.createElement("span");
+  role.className = "member-role-badge";
+  role.textContent = roleLabel;
+
+  row.appendChild(label);
+  row.appendChild(role);
+
+  if (onRemove) {
+    const rm = document.createElement("button");
+    rm.className = "member-remove-btn";
+    rm.textContent = "削除";
+    rm.addEventListener("click", onRemove);
+    row.appendChild(rm);
+  }
+
+  return row;
+}
+
+function renderMembersModal() {
+  const project = state.projects.find((p) => p.id === membersModalProjectId);
+  if (!project) {
+    membersModal.classList.add("hidden");
+    return;
+  }
+  const isOwner = isOwnerOfProject(project);
+
+  membersModalTitle.textContent = "👥 " + project.name + " のメンバー";
+  membersListEl.innerHTML = "";
+
+  membersListEl.appendChild(memberRow(project.ownerEmail || "(不明)", "オーナー", null));
+
+  (project.editors || []).forEach((email) => {
+    membersListEl.appendChild(
+      memberRow(
+        email,
+        "共同編集",
+        isOwner
+          ? () => {
+              project.editors = project.editors.filter((e) => e !== email);
+              project.memberEmails = buildMemberEmails(project);
+              saveProject(project);
+            }
+          : null
+      )
+    );
+  });
+
+  (project.viewers || []).forEach((email) => {
+    membersListEl.appendChild(
+      memberRow(
+        email,
+        "閲覧のみ",
+        isOwner
+          ? () => {
+              project.viewers = project.viewers.filter((e) => e !== email);
+              project.memberEmails = buildMemberEmails(project);
+              saveProject(project);
+            }
+          : null
+      )
+    );
+  });
+
+  inviteForm.classList.toggle("hidden", !isOwner);
+  inviteNote.classList.toggle("hidden", !isOwner);
+}
+
+inviteSubmitBtn.addEventListener("click", () => {
+  const project = state.projects.find((p) => p.id === membersModalProjectId);
+  if (!project) return;
+  const email = inviteEmailInput.value.trim().toLowerCase();
+  const role = inviteRoleSelect.value;
+
+  if (!email || !email.includes("@")) {
+    alert("正しいメールアドレスを入力してください。");
+    return;
+  }
+  if (email === (project.ownerEmail || "").toLowerCase()) {
+    alert("オーナー自身は招待できません。");
+    return;
+  }
+
+  project.editors = (project.editors || []).filter((e) => e !== email);
+  project.viewers = (project.viewers || []).filter((e) => e !== email);
+  if (role === "editor") project.editors.push(email);
+  else project.viewers.push(email);
+  project.memberEmails = buildMemberEmails(project);
+
+  saveProject(project);
+  inviteEmailInput.value = "";
+  renderMembersModal();
+});
+
+membersCloseBtn.addEventListener("click", () => membersModal.classList.add("hidden"));
+membersModal.addEventListener("click", (e) => {
+  if (e.target === membersModal) membersModal.classList.add("hidden");
 });
 
 // ---------- view tabs ----------
@@ -395,15 +633,16 @@ const addColumnBtn = document.getElementById("add-column-btn");
 
 addColumnBtn.addEventListener("click", () => {
   const project = getActiveProject();
-  if (!project) return;
+  if (!project || !canEditProject(project)) return;
   project.columns.push(makeColumn("新しいリスト"));
-  saveState();
+  saveProject(project);
 });
 
 function renderBoard() {
   const project = getActiveProject();
   board.innerHTML = "";
   if (!project) return;
+  const editable = canEditProject(project);
 
   project.columns.forEach((column) => {
     const columnEl = document.createElement("div");
@@ -417,24 +656,27 @@ function renderBoard() {
     const titleInput = document.createElement("input");
     titleInput.className = "column-title";
     titleInput.value = column.title;
+    titleInput.disabled = !editable;
     titleInput.addEventListener("change", () => {
       column.title = titleInput.value || "リスト";
-      saveState();
+      saveProject(project);
     });
-
-    const deleteBtn = document.createElement("button");
-    deleteBtn.className = "delete-column-btn";
-    deleteBtn.textContent = "✕";
-    deleteBtn.title = "リストを削除";
-    deleteBtn.addEventListener("click", () => {
-      if (confirm(`「${column.title}」を削除しますか？`)) {
-        project.columns = project.columns.filter((c) => c.id !== column.id);
-        saveState();
-      }
-    });
-
     header.appendChild(titleInput);
-    header.appendChild(deleteBtn);
+
+    if (editable) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.className = "delete-column-btn";
+      deleteBtn.textContent = "✕";
+      deleteBtn.title = "リストを削除";
+      deleteBtn.addEventListener("click", () => {
+        if (confirm(`「${column.title}」を削除しますか？`)) {
+          project.columns = project.columns.filter((c) => c.id !== column.id);
+          saveProject(project);
+        }
+      });
+      header.appendChild(deleteBtn);
+    }
+
     columnEl.appendChild(header);
 
     // card list
@@ -444,7 +686,7 @@ function renderBoard() {
     column.cards.forEach((card) => {
       const cardEl = document.createElement("div");
       cardEl.className = "card";
-      cardEl.draggable = true;
+      cardEl.draggable = editable;
       cardEl.dataset.cardId = card.id;
 
       cardEl.addEventListener("dragstart", (e) => {
@@ -499,20 +741,22 @@ function renderBoard() {
       }
       if (badges.children.length) cardEl.appendChild(badges);
 
-      const delBtn = document.createElement("button");
-      delBtn.className = "card-delete";
-      delBtn.textContent = "✕";
-      delBtn.title = "カードを削除";
-      delBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openConfirmModal({
-          title: "削除しますか？",
-          message: "このカードはゴミ箱に移動します。ゴミ箱からいつでも復元・完全削除できます。",
-          okLabel: "削除する",
-          onConfirm: () => moveCardToTrash(column.id, card.id),
+      if (editable) {
+        const delBtn = document.createElement("button");
+        delBtn.className = "card-delete";
+        delBtn.textContent = "✕";
+        delBtn.title = "カードを削除";
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          openConfirmModal({
+            title: "削除しますか？",
+            message: "このカードはゴミ箱に移動します。ゴミ箱からいつでも復元・完全削除できます。",
+            okLabel: "削除する",
+            onConfirm: () => moveCardToTrash(column.id, card.id),
+          });
         });
-      });
-      cardEl.appendChild(delBtn);
+        cardEl.appendChild(delBtn);
+      }
 
       cardList.appendChild(cardEl);
     });
@@ -520,53 +764,56 @@ function renderBoard() {
     columnEl.appendChild(cardList);
 
     // add card control
-    const addWrap = document.createElement("div");
+    if (editable) {
+      const addWrap = document.createElement("div");
 
-    const addBtn = document.createElement("button");
-    addBtn.className = "add-card-btn";
-    addBtn.textContent = "+ カードを追加";
-    addBtn.addEventListener("click", () => showCardInput());
+      const addBtn = document.createElement("button");
+      addBtn.className = "add-card-btn";
+      addBtn.textContent = "+ カードを追加";
+      addBtn.addEventListener("click", () => showCardInput());
 
-    function showCardInput() {
-      addWrap.innerHTML = "";
-      const textarea = document.createElement("textarea");
-      textarea.className = "card-input";
-      textarea.rows = 2;
-      textarea.placeholder = "カードの内容を入力...";
+      function showCardInput() {
+        addWrap.innerHTML = "";
+        const textarea = document.createElement("textarea");
+        textarea.className = "card-input";
+        textarea.rows = 2;
+        textarea.placeholder = "カードの内容を入力...";
 
-      const actions = document.createElement("div");
-      actions.className = "card-input-actions";
+        const actions = document.createElement("div");
+        actions.className = "card-input-actions";
 
-      const confirmBtn = document.createElement("button");
-      confirmBtn.className = "confirm-add";
-      confirmBtn.textContent = "追加";
-      confirmBtn.addEventListener("click", () => {
-        const text = textarea.value.trim();
-        if (text) {
-          column.cards.push(makeCard(text));
-          saveState();
-        }
-      });
+        const confirmBtn = document.createElement("button");
+        confirmBtn.className = "confirm-add";
+        confirmBtn.textContent = "追加";
+        confirmBtn.addEventListener("click", () => {
+          const text = textarea.value.trim();
+          if (text) {
+            column.cards.push(makeCard(text));
+            saveProject(project);
+          }
+        });
 
-      const cancelBtn = document.createElement("button");
-      cancelBtn.className = "cancel-add";
-      cancelBtn.textContent = "キャンセル";
-      cancelBtn.addEventListener("click", () => {
-        renderBoard();
-      });
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "cancel-add";
+        cancelBtn.textContent = "キャンセル";
+        cancelBtn.addEventListener("click", () => {
+          renderBoard();
+        });
 
-      actions.appendChild(confirmBtn);
-      actions.appendChild(cancelBtn);
-      addWrap.appendChild(textarea);
-      addWrap.appendChild(actions);
-      textarea.focus();
+        actions.appendChild(confirmBtn);
+        actions.appendChild(cancelBtn);
+        addWrap.appendChild(textarea);
+        addWrap.appendChild(actions);
+        textarea.focus();
+      }
+
+      addWrap.appendChild(addBtn);
+      columnEl.appendChild(addWrap);
     }
-
-    addWrap.appendChild(addBtn);
-    columnEl.appendChild(addWrap);
 
     // drop handling
     columnEl.addEventListener("dragover", (e) => {
+      if (!editable) return;
       e.preventDefault();
       columnEl.classList.add("drag-over");
     });
@@ -574,6 +821,7 @@ function renderBoard() {
       columnEl.classList.remove("drag-over");
     });
     columnEl.addEventListener("drop", (e) => {
+      if (!editable) return;
       e.preventDefault();
       columnEl.classList.remove("drag-over");
       const data = JSON.parse(e.dataTransfer.getData("text/plain"));
@@ -583,7 +831,7 @@ function renderBoard() {
       if (cardIndex === -1) return;
       const [movedCard] = fromColumn.cards.splice(cardIndex, 1);
       column.cards.push(movedCard);
-      saveState();
+      saveProject(project);
     });
 
     board.appendChild(columnEl);
@@ -1016,7 +1264,21 @@ function findCard(columnId, cardId) {
   const column = project.columns.find((c) => c.id === columnId);
   if (!column) return null;
   const card = column.cards.find((c) => c.id === cardId);
-  return card ? { column, card } : null;
+  return card ? { project, column, card } : null;
+}
+
+function applyModalEditability(editable) {
+  cardModal.classList.toggle("read-only", !editable);
+  modalTitleInput.disabled = !editable;
+  modalStartDate.disabled = !editable;
+  modalDueDate.disabled = !editable;
+  modalPriority.disabled = !editable;
+  modalNotes.disabled = !editable;
+  modalMemberInput.disabled = !editable;
+  modalCommentInput.disabled = !editable;
+  modalAttachmentLabel.classList.toggle("hidden", !editable);
+  modalCommentFileInput.disabled = !editable;
+  document.querySelector(".attach-icon-btn").classList.toggle("hidden", !editable);
 }
 
 function openCardModal(columnId, cardId) {
@@ -1024,6 +1286,7 @@ function openCardModal(columnId, cardId) {
   if (!found) return;
   activeCardRef = { columnId, cardId };
   populateModal(found.card);
+  applyModalEditability(canEditProject(found.project));
   cardModal.classList.remove("hidden");
 }
 
@@ -1052,22 +1315,28 @@ function populateModal(card) {
 
 function renderAttachments(attachments) {
   modalAttachmentsEl.innerHTML = "";
+  const editable = activeCardRef ? canEditProject(findCard(activeCardRef.columnId, activeCardRef.cardId)?.project) : false;
   (attachments || []).forEach((att) => {
-    const chip = buildAttachmentChip(att, () => {
-      if (!activeCardRef) return;
-      const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
-      if (!found) return;
-      found.card.attachments = (found.card.attachments || []).filter((a) => a.id !== att.id);
-      saveState();
-      renderAttachments(found.card.attachments);
-      if (att.path) {
-        storage
-          .ref()
-          .child(att.path)
-          .delete()
-          .catch(() => {});
-      }
-    });
+    const chip = buildAttachmentChip(
+      att,
+      editable
+        ? () => {
+            if (!activeCardRef) return;
+            const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+            if (!found) return;
+            found.card.attachments = (found.card.attachments || []).filter((a) => a.id !== att.id);
+            saveProject(found.project);
+            renderAttachments(found.card.attachments);
+            if (att.path) {
+              storage
+                .ref()
+                .child(att.path)
+                .delete()
+                .catch(() => {});
+            }
+          }
+        : null
+    );
     modalAttachmentsEl.appendChild(chip);
   });
 }
@@ -1113,7 +1382,7 @@ modalAttachmentInput.addEventListener("change", async () => {
     if (!found) return;
     found.card.attachments = found.card.attachments || [];
     found.card.attachments.push(attachment);
-    saveState();
+    saveProject(found.project);
     if (activeCardRef && activeCardRef.cardId === targetCardId) {
       renderAttachments(found.card.attachments);
     }
@@ -1139,22 +1408,25 @@ modalCommentFileInput.addEventListener("change", () => {
 
 function renderMembers(members) {
   modalMembersEl.innerHTML = "";
+  const editable = activeCardRef ? canEditProject(findCard(activeCardRef.columnId, activeCardRef.cardId)?.project) : false;
   members.forEach((name, idx) => {
     const chip = document.createElement("span");
     chip.className = "chip";
     chip.textContent = name;
 
-    const rm = document.createElement("button");
-    rm.textContent = "✕";
-    rm.addEventListener("click", () => {
-      const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
-      if (!found) return;
-      found.card.members.splice(idx, 1);
-      saveState();
-      renderMembers(found.card.members);
-    });
+    if (editable) {
+      const rm = document.createElement("button");
+      rm.textContent = "✕";
+      rm.addEventListener("click", () => {
+        const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+        if (!found) return;
+        found.card.members.splice(idx, 1);
+        saveProject(found.project);
+        renderMembers(found.card.members);
+      });
+      chip.appendChild(rm);
+    }
 
-    chip.appendChild(rm);
     modalMembersEl.appendChild(chip);
   });
 }
@@ -1194,7 +1466,7 @@ modalTitleInput.addEventListener("change", () => {
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.text = modalTitleInput.value.trim() || found.card.text;
-  saveState();
+  saveProject(found.project);
 });
 
 modalStartDate.addEventListener("change", () => {
@@ -1202,7 +1474,7 @@ modalStartDate.addEventListener("change", () => {
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.startDate = modalStartDate.value || null;
-  saveState();
+  saveProject(found.project);
 });
 
 modalDueDate.addEventListener("change", () => {
@@ -1210,7 +1482,7 @@ modalDueDate.addEventListener("change", () => {
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.dueDate = modalDueDate.value || null;
-  saveState();
+  saveProject(found.project);
 });
 
 modalPriority.addEventListener("change", () => {
@@ -1218,7 +1490,7 @@ modalPriority.addEventListener("change", () => {
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.priority = modalPriority.value || null;
-  saveState();
+  saveProject(found.project);
 });
 
 modalNotes.addEventListener("change", () => {
@@ -1226,7 +1498,7 @@ modalNotes.addEventListener("change", () => {
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
   found.card.notes = modalNotes.value;
-  saveState();
+  saveProject(found.project);
 });
 
 modalMemberInput.addEventListener("keydown", (e) => {
@@ -1239,7 +1511,7 @@ modalMemberInput.addEventListener("keydown", (e) => {
   if (!found) return;
   found.card.members = found.card.members || [];
   found.card.members.push(name);
-  saveState();
+  saveProject(found.project);
   renderMembers(found.card.members);
   modalMemberInput.value = "";
 });
@@ -1289,7 +1561,7 @@ modalCommentInput.addEventListener("keydown", async (e) => {
   };
   if (attachment) comment.attachment = attachment;
   found.card.comments.push(comment);
-  saveState();
+  saveProject(found.project);
   if (activeCardRef && activeCardRef.cardId === targetCardId) {
     renderComments(found.card.comments);
   }
@@ -1340,7 +1612,7 @@ confirmModal.addEventListener("click", (e) => {
   if (e.target === confirmModal) closeConfirmModal();
 });
 
-// ---------- trash ----------
+// ---------- trash (per project) ----------
 const trashModal = document.getElementById("trash-modal");
 const trashCloseBtn = document.getElementById("trash-close-btn");
 const trashListEl = document.getElementById("trash-list");
@@ -1349,47 +1621,45 @@ const trashCountBadge = document.getElementById("trash-count");
 
 function moveCardToTrash(columnId, cardId) {
   const project = getActiveProject();
-  if (!project) return;
+  if (!project || !canEditProject(project)) return;
   const column = project.columns.find((c) => c.id === columnId);
   if (!column) return;
   const idx = column.cards.findIndex((c) => c.id === cardId);
   if (idx === -1) return;
   const [removedCard] = column.cards.splice(idx, 1);
-  state.trash = state.trash || [];
-  state.trash.unshift({
+  project.trash = project.trash || [];
+  project.trash.unshift({
     id: uid(),
-    projectId: project.id,
     card: removedCard,
     fromColumnId: columnId,
     deletedAt: new Date().toISOString(),
   });
   if (activeCardRef && activeCardRef.cardId === cardId) closeCardModal();
-  saveState();
+  saveProject(project);
 }
 
 function restoreFromTrash(trashItemId) {
-  const trash = state.trash || [];
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  const trash = project.trash || [];
   const idx = trash.findIndex((t) => t.id === trashItemId);
   if (idx === -1) return;
   const [item] = trash.splice(idx, 1);
-  const targetProject =
-    state.projects.find((p) => p.id === item.projectId) || getActiveProject();
-  if (!targetProject) return;
-  const targetColumn =
-    targetProject.columns.find((c) => c.id === item.fromColumnId) || targetProject.columns[0];
-  if (targetColumn) {
-    targetColumn.cards.push(item.card);
-  }
-  saveState();
+  const targetColumn = project.columns.find((c) => c.id === item.fromColumnId) || project.columns[0];
+  if (targetColumn) targetColumn.cards.push(item.card);
+  saveProject(project);
 }
 
 function permanentlyDeleteTrashItem(trashItemId) {
-  state.trash = (state.trash || []).filter((t) => t.id !== trashItemId);
-  saveState();
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  project.trash = (project.trash || []).filter((t) => t.id !== trashItemId);
+  saveProject(project);
 }
 
 function updateTrashBadge() {
-  const count = (state.trash || []).length;
+  const project = getActiveProject();
+  const count = project && project.trash ? project.trash.length : 0;
   if (count > 0) {
     trashCountBadge.textContent = count > 99 ? "99+" : String(count);
     trashCountBadge.classList.remove("hidden");
@@ -1399,7 +1669,8 @@ function updateTrashBadge() {
 }
 
 function renderTrash() {
-  const trash = state.trash || [];
+  const project = getActiveProject();
+  const trash = (project && project.trash) || [];
   trashListEl.innerHTML = "";
 
   if (!trash.length) {
@@ -1420,14 +1691,9 @@ function renderTrash() {
 
     const meta = document.createElement("div");
     meta.className = "trash-item-meta";
-    const proj = state.projects.find((p) => p.id === item.projectId);
-    const col = proj ? proj.columns.find((c) => c.id === item.fromColumnId) : null;
+    const col = project.columns.find((c) => c.id === item.fromColumnId);
     meta.textContent =
-      (proj ? proj.name : "不明なプロジェクト") +
-      " / " +
-      (col ? col.title : "不明なリスト") +
-      " ・ " +
-      new Date(item.deletedAt).toLocaleString("ja-JP");
+      (col ? col.title : "不明なリスト") + " ・ " + new Date(item.deletedAt).toLocaleString("ja-JP");
 
     info.appendChild(title);
     info.appendChild(meta);
@@ -1475,15 +1741,16 @@ trashModal.addEventListener("click", (e) => {
 });
 
 trashEmptyBtn.addEventListener("click", () => {
-  const count = (state.trash || []).length;
+  const project = getActiveProject();
+  const count = project && project.trash ? project.trash.length : 0;
   if (!count) return;
   openConfirmModal({
     title: "ゴミ箱を空にしますか？",
     message: `ゴミ箱内の${count}件のカードをすべて完全に削除します。この操作は元に戻せません。`,
     okLabel: "すべて完全に削除",
     onConfirm: () => {
-      state.trash = [];
-      saveState();
+      project.trash = [];
+      saveProject(project);
     },
   });
 });

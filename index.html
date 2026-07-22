@@ -148,6 +148,26 @@
     </div>
   </div>
 
+  <!-- メンバー管理・招待モーダル -->
+  <div id="members-modal" class="modal-overlay hidden">
+    <div class="modal-content small members-content">
+      <button id="members-close-btn" class="modal-close-x">✕</button>
+      <h2 id="members-modal-title">👥 メンバー</h2>
+      <div id="members-list" class="members-list"></div>
+      <div id="invite-form" class="invite-form hidden">
+        <input type="email" id="invite-email-input" placeholder="メールアドレス" />
+        <select id="invite-role-select">
+          <option value="editor">共同編集</option>
+          <option value="viewer">閲覧のみ</option>
+        </select>
+        <button id="invite-submit-btn" class="confirm-add">招待</button>
+      </div>
+      <p id="invite-note" class="modal-sub hidden">
+        招待したメールアドレスのGoogleアカウントでログインすると、このプロジェクトにアクセスできるようになります(メールは送信されません。招待したことを別途本人に伝えてください)。
+      </p>
+    </div>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
