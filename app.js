@@ -1923,10 +1923,15 @@ function renderBoard() {
       deleteBtn.textContent = "✕";
       deleteBtn.title = "リストを削除";
       deleteBtn.addEventListener("click", () => {
-        if (confirm(`「${column.title}」を削除しますか？`)) {
-          project.columns = project.columns.filter((c) => c.id !== column.id);
-          saveProject(project);
-        }
+        const cardCount = column.cards.length;
+        openConfirmModal({
+          title: `「${column.title}」を削除しますか？`,
+          message: cardCount
+            ? `このリストに含まれる${cardCount}件のカードも同時にゴミ箱へ移動します。ゴミ箱からいつでも復元できます。`
+            : "このリストを削除します。",
+          okLabel: "削除する",
+          onConfirm: () => deleteColumnAndTrashCards(project, column.id),
+        });
       });
       header.appendChild(deleteBtn);
     }
@@ -3688,9 +3693,75 @@ function moveCardToTrash(columnId, cardId) {
     id: uid(),
     card: removedCard,
     fromColumnId: columnId,
+    // Denormalized so the trash UI can still show which list a card came
+    // from even after that list itself has been deleted (fromColumnId
+    // would no longer resolve to anything in project.columns at that point).
+    fromColumnTitle: column.title,
     deletedAt: new Date().toISOString(),
   });
   if (activeCardRef && activeCardRef.cardId === cardId) closeCardModal();
+  saveProject(project);
+}
+
+// Deleting a whole list also deletes every card inside it — rather than
+// losing that data outright, every card gets moved into the trash exactly
+// like an individual card deletion would, all tagged with the same
+// `listBatchId` so the trash UI can group them under one "this whole list
+// was deleted" header (with a one-click "listごと元に戻す" to undo it) instead
+// of showing a wall of unrelated-looking loose cards.
+function deleteColumnAndTrashCards(project, columnId) {
+  if (!project || !canEditProject(project)) return;
+  const idx = project.columns.findIndex((c) => c.id === columnId);
+  if (idx === -1) return;
+  const [removedColumn] = project.columns.splice(idx, 1);
+
+  const cardsInColumn = removedColumn.cards || [];
+  if (activeCardRef && cardsInColumn.some((c) => c.id === activeCardRef.cardId)) {
+    closeCardModal();
+  }
+
+  project.trash = project.trash || [];
+  if (cardsInColumn.length) {
+    const batchId = uid();
+    const deletedAt = new Date().toISOString();
+    cardsInColumn.forEach((card) => {
+      project.trash.unshift({
+        id: uid(),
+        card,
+        fromColumnId: removedColumn.id,
+        fromColumnTitle: removedColumn.title,
+        deletedAt,
+        listBatchId: batchId,
+        listBatchTitle: removedColumn.title,
+      });
+    });
+  }
+
+  saveProject(project);
+}
+
+// Un-does a whole-list deletion in one click: recreates the list (as a new
+// column, since the original id is gone) with all of its cards restored
+// into it, and removes those cards from the trash.
+function restoreListBatch(listBatchId) {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  const items = (project.trash || []).filter((t) => t.listBatchId === listBatchId);
+  if (!items.length) return;
+  const title = items[0].listBatchTitle || items[0].fromColumnTitle || "復元されたリスト";
+  project.columns.push(makeColumn(title, items.map((it) => it.card)));
+  project.trash = (project.trash || []).filter((t) => t.listBatchId !== listBatchId);
+  saveProject(project);
+}
+
+// Permanently deletes every card belonging to one whole-list-deletion batch
+// (and their Storage files), in one action rather than one card at a time.
+function permanentlyDeleteListBatch(listBatchId) {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  const items = (project.trash || []).filter((t) => t.listBatchId === listBatchId);
+  items.forEach((item) => deleteCardStorageFiles(item.card));
+  project.trash = (project.trash || []).filter((t) => t.listBatchId !== listBatchId);
   saveProject(project);
 }
 
@@ -3753,6 +3824,61 @@ function updateTrashBadge() {
   }
 }
 
+// Builds one card row for the trash list. `nested` is true when this row is
+// rendered inside a whole-list-deletion group (slightly different styling —
+// see .trash-item.nested).
+function renderTrashItemRow(item, nested) {
+  const row = document.createElement("div");
+  row.className = "trash-item" + (nested ? " nested" : "");
+
+  const info = document.createElement("div");
+  info.className = "trash-item-info";
+
+  const title = document.createElement("div");
+  title.className = "trash-item-title";
+  title.textContent = item.card.text;
+
+  const meta = document.createElement("div");
+  meta.className = "trash-item-meta";
+  meta.textContent =
+    (item.fromColumnTitle || "不明なリスト") + " ・ " + new Date(item.deletedAt).toLocaleString("ja-JP");
+
+  info.appendChild(title);
+  info.appendChild(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "trash-item-actions";
+
+  const restoreBtn = document.createElement("button");
+  restoreBtn.className = "restore-btn";
+  restoreBtn.textContent = "元に戻す";
+  restoreBtn.addEventListener("click", () => restoreFromTrash(item.id));
+
+  const delBtn = document.createElement("button");
+  delBtn.className = "danger-btn small";
+  delBtn.textContent = "完全に削除";
+  delBtn.addEventListener("click", () => {
+    openConfirmModal({
+      title: "完全に削除しますか？",
+      message: "この操作は元に戻せません。",
+      okLabel: "完全に削除",
+      onConfirm: () => permanentlyDeleteTrashItem(item.id),
+    });
+  });
+
+  actions.appendChild(restoreBtn);
+  actions.appendChild(delBtn);
+
+  row.appendChild(info);
+  row.appendChild(actions);
+  return row;
+}
+
+// Cards deleted together as part of a whole-list deletion (they share a
+// listBatchId) are rendered grouped under one header with "restore the
+// whole list" / "permanently delete all" actions, instead of as a wall of
+// loose, seemingly-unrelated cards. Everything else renders as a plain row,
+// same as before.
 function renderTrash() {
   const project = getActiveProject();
   const trash = (project && project.trash) || [];
@@ -3763,52 +3889,70 @@ function renderTrash() {
     return;
   }
 
+  const rendered = new Set();
+
   trash.forEach((item) => {
-    const row = document.createElement("div");
-    row.className = "trash-item";
+    if (rendered.has(item.id)) return;
 
-    const info = document.createElement("div");
-    info.className = "trash-item-info";
+    if (item.listBatchId) {
+      const groupItems = trash.filter((t) => t.listBatchId === item.listBatchId);
+      groupItems.forEach((g) => rendered.add(g.id));
+      const listTitle = item.listBatchTitle || item.fromColumnTitle || "リスト";
 
-    const title = document.createElement("div");
-    title.className = "trash-item-title";
-    title.textContent = item.card.text;
+      const group = document.createElement("div");
+      group.className = "trash-list-group";
 
-    const meta = document.createElement("div");
-    meta.className = "trash-item-meta";
-    const col = project.columns.find((c) => c.id === item.fromColumnId);
-    meta.textContent =
-      (col ? col.title : "不明なリスト") + " ・ " + new Date(item.deletedAt).toLocaleString("ja-JP");
+      const header = document.createElement("div");
+      header.className = "trash-group-header";
 
-    info.appendChild(title);
-    info.appendChild(meta);
+      const heading = document.createElement("div");
+      heading.className = "trash-group-heading";
+      const titleEl = document.createElement("div");
+      titleEl.className = "trash-group-title";
+      titleEl.textContent = `🗑️ 「${listTitle}」を削除`;
+      const metaEl = document.createElement("div");
+      metaEl.className = "trash-group-meta";
+      metaEl.textContent =
+        `${groupItems.length}件のカード ・ ` + new Date(item.deletedAt).toLocaleString("ja-JP");
+      heading.appendChild(titleEl);
+      heading.appendChild(metaEl);
+      header.appendChild(heading);
 
-    const actions = document.createElement("div");
-    actions.className = "trash-item-actions";
+      const groupActions = document.createElement("div");
+      groupActions.className = "trash-group-actions";
 
-    const restoreBtn = document.createElement("button");
-    restoreBtn.className = "restore-btn";
-    restoreBtn.textContent = "元に戻す";
-    restoreBtn.addEventListener("click", () => restoreFromTrash(item.id));
+      const restoreAllBtn = document.createElement("button");
+      restoreAllBtn.className = "restore-btn";
+      restoreAllBtn.textContent = "リストごと元に戻す";
+      restoreAllBtn.addEventListener("click", () => restoreListBatch(item.listBatchId));
+      groupActions.appendChild(restoreAllBtn);
 
-    const delBtn = document.createElement("button");
-    delBtn.className = "danger-btn small";
-    delBtn.textContent = "完全に削除";
-    delBtn.addEventListener("click", () => {
-      openConfirmModal({
-        title: "完全に削除しますか？",
-        message: "この操作は元に戻せません。",
-        okLabel: "完全に削除",
-        onConfirm: () => permanentlyDeleteTrashItem(item.id),
+      const deleteAllBtn = document.createElement("button");
+      deleteAllBtn.className = "danger-btn small";
+      deleteAllBtn.textContent = "すべて完全に削除";
+      deleteAllBtn.addEventListener("click", () => {
+        openConfirmModal({
+          title: "完全に削除しますか？",
+          message: `「${listTitle}」の${groupItems.length}件のカードをすべて完全に削除します。この操作は元に戻せません。`,
+          okLabel: "完全に削除",
+          onConfirm: () => permanentlyDeleteListBatch(item.listBatchId),
+        });
       });
-    });
+      groupActions.appendChild(deleteAllBtn);
 
-    actions.appendChild(restoreBtn);
-    actions.appendChild(delBtn);
+      header.appendChild(groupActions);
+      group.appendChild(header);
 
-    row.appendChild(info);
-    row.appendChild(actions);
-    trashListEl.appendChild(row);
+      const cardsWrap = document.createElement("div");
+      cardsWrap.className = "trash-group-cards";
+      groupItems.forEach((g) => cardsWrap.appendChild(renderTrashItemRow(g, true)));
+      group.appendChild(cardsWrap);
+
+      trashListEl.appendChild(group);
+    } else {
+      rendered.add(item.id);
+      trashListEl.appendChild(renderTrashItemRow(item, false));
+    }
   });
 }
 

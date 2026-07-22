@@ -974,6 +974,57 @@ body {
   padding: 24px 0;
 }
 
+/* Cards deleted together (because their whole list was deleted) are shown
+   grouped under one header, instead of as indistinguishable loose cards. */
+.trash-list-group {
+  border: 1px solid #dcdfe4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.trash-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: #eef0f3;
+  padding: 8px 12px;
+}
+
+.trash-group-heading {
+  min-width: 0;
+}
+
+.trash-group-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #172b4d;
+}
+
+.trash-group-meta {
+  font-size: 11px;
+  color: #6b778c;
+  margin-top: 1px;
+}
+
+.trash-group-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.trash-group-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+}
+
+.trash-item.nested {
+  background: #fff;
+  border: 1px solid #eee;
+}
+
 /* ---------- login page (2-column, plain HTML/CSS) ---------- */
 
 .auth-page {
