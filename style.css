@@ -443,15 +443,39 @@ body {
   background: rgba(0, 0, 0, 0.15);
 }
 
-.app-header h1 {
+.app-header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: #fff;
   font-size: 20px;
   margin: 0;
   flex: 1;
   min-width: 0;
+}
+
+.project-title-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #fff;
+  font: inherit;
+  padding: 2px 4px;
+  border-radius: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.project-title-input:not(:disabled):hover,
+.project-title-input:not(:disabled):focus {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.project-title-input:disabled {
+  cursor: default;
 }
 
 /* ---------- view tabs ---------- */

@@ -551,7 +551,8 @@ function startPublicShareView(projectId) {
 function renderPublicShareError() {
   board.innerHTML =
     '<p class="table-empty" style="width:100%">このリンクは無効です。共有が解除されたか、URLが間違っている可能性があります。</p>';
-  projectTitleEl.textContent = "📋 Kanban Board";
+  projectTitleInput.value = "Kanban Board";
+  projectTitleInput.disabled = true;
 }
 
 function renderAll() {
@@ -559,7 +560,8 @@ function renderAll() {
   updatePlanNote();
   updateStorageAlert();
   const project = getActiveProject();
-  projectTitleEl.textContent = "📋 " + (project ? project.name : "Kanban Board");
+  projectTitleInput.value = project ? project.name : "Kanban Board";
+  projectTitleInput.disabled = !project || !canEditProject(project);
   applyDrawerState();
 
   // If the active project's plan doesn't allow the currently-selected view
@@ -788,11 +790,22 @@ auth.onAuthStateChanged((user) => {
 // ---------- project drawer ----------
 const projectDrawer = document.getElementById("project-drawer");
 const drawerToggleBtn = document.getElementById("drawer-toggle-btn");
-const projectTitleEl = document.getElementById("project-title");
+const projectTitleInput = document.getElementById("project-title-input");
 const projectListEl = document.getElementById("project-list");
 const addProjectBtn = document.getElementById("add-project-btn");
 const planNoteEl = document.getElementById("plan-note");
 const planNoteLinkBtn = document.getElementById("plan-note-link");
+
+// Renaming now happens here in the header (the currently active project),
+// rather than inline in the drawer list — that made it too easy to
+// accidentally rename a project while just clicking over to switch to it.
+projectTitleInput.addEventListener("change", () => {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  project.name = projectTitleInput.value.trim() || project.name;
+  saveProject(project);
+  projectTitleInput.value = project.name;
+});
 
 function applyDrawerState() {
   projectDrawer.classList.toggle("closed", !drawerOpen);
