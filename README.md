@@ -118,11 +118,21 @@ service cloud.firestore {
         request.resource.data.get('planCancelAtPeriodEnd', null) == resource.data.get('planCancelAtPeriodEnd', null) &&
         request.resource.data.get('currentPeriodEnd', null) == resource.data.get('currentPeriodEnd', null);
     }
+
+    // 他のプロジェクトメンバーのアバター画像(ヘッダー・メンバー一覧などに表示)を
+    // 解決するための、最小限の公開ルックアップ用コレクション(メールアドレスを
+    // ドキュメントIDにし、photoURLのみを持つ)。本人以外は書き込めない。
+    match /userAvatars/{email} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.token.email == email;
+    }
   }
 }
 ```
 
 上のルールでは、オーナーはプロジェクトの削除・メンバー管理・内容編集すべてができ、共同編集者(editors)はボードの内容(リスト・カード等)は編集できるがメンバー構成や削除はできない、閲覧者(viewers)は読み取りのみ、という制御をルール側でも強制している。
+
+プロフィール設定モーダルからアップロードした画像(またはGoogleログイン時のアカウント画像)は、ヘッダーのメンバーアイコンやメンバー一覧モーダルなど、アプリ内のあらゆるアバター表示に反映される。他人の`users/{uid}`ドキュメント(プラン・請求情報などを含む)は読めない前提のまま、写真URLだけをメールアドレス単位で引けるように`userAvatars`という別コレクションを用意し、そちらだけを他ユーザーからも読める公開ルックアップとして使っている。
 
 招待は「メールアドレスをプロジェクトのメンバーとして登録する」だけで、実際のメール送信は行われない。招待された人がそのメールアドレスのGoogleアカウントでログインすると、自動的にそのプロジェクトへアクセスできるようになる。招待したことは別途本人に直接伝える必要がある。
 

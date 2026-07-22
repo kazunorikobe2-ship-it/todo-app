@@ -326,12 +326,57 @@ function avatarColorFor(str) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
+// Minimal public collection (keyed by email, not uid) so that anyone can
+// look up ANY project member's uploaded profile photo — even members they
+// don't otherwise have permission to read the private `users/{uid}` doc for
+// — without exposing plan/billing info. Each user can only write their own
+// entry (see the userAvatars/{email} security rule).
+const avatarsCollection = db.collection("userAvatars");
+
+// email -> photoURL string | null (resolved) | Promise (lookup in flight).
+// Memoizes lookups so re-rendering the same avatars repeatedly doesn't
+// re-query Firestore every time.
+const avatarPhotoCache = {};
+
+function getAvatarPhotoURL(email) {
+  if (!email) return Promise.resolve(null);
+  if (currentUser && email === currentUser.email && userProfile && userProfile.photoURL) {
+    return Promise.resolve(userProfile.photoURL);
+  }
+  const cached = avatarPhotoCache[email];
+  if (cached !== undefined) return Promise.resolve(cached);
+
+  const lookup = avatarsCollection
+    .doc(email)
+    .get()
+    .then((snap) => {
+      const url = (snap.exists && snap.data().photoURL) || null;
+      avatarPhotoCache[email] = url;
+      return url;
+    })
+    .catch(() => null);
+  avatarPhotoCache[email] = lookup;
+  return lookup;
+}
+
 function buildAvatar(email, sizeClass) {
   const el = document.createElement("div");
   el.className = "avatar-circle" + (sizeClass ? " " + sizeClass : "");
   el.style.background = avatarColorFor(email || "?");
   el.textContent = (email || "?").trim().charAt(0).toUpperCase();
   el.title = email || "";
+
+  // The initials circle above renders immediately/synchronously; if this
+  // member has uploaded (or signed in with) a profile photo, swap it in
+  // once the (async) lookup resolves.
+  getAvatarPhotoURL(email).then((url) => {
+    if (!url) return;
+    el.style.backgroundImage = `url(${url})`;
+    el.style.backgroundSize = "cover";
+    el.style.backgroundPosition = "center";
+    el.textContent = "";
+  });
+
   return el;
 }
 
@@ -1364,10 +1409,18 @@ function maskEmailForDisplay(email) {
   if (!email) return email;
   const atIdx = email.indexOf("@");
   if (atIdx === -1) return email;
-  const local = email.slice(0, atIdx + 1);
+  const local = email.slice(0, atIdx);
   const domain = email.slice(atIdx + 1);
-  const maskLen = Math.min(4, domain.length);
-  return local + "*".repeat(maskLen) + domain.slice(maskLen);
+
+  // Mask up to the last 5 characters of the local part (right before "@")...
+  const localMaskLen = Math.min(5, local.length);
+  const maskedLocal = local.slice(0, local.length - localMaskLen) + "*".repeat(localMaskLen);
+
+  // ...and up to the first 4 characters of the domain (right after "@").
+  const domainMaskLen = Math.min(4, domain.length);
+  const maskedDomain = "*".repeat(domainMaskLen) + domain.slice(domainMaskLen);
+
+  return maskedLocal + "@" + maskedDomain;
 }
 
 function memberRow(email, roleLabel, onRemove) {
@@ -1730,6 +1783,23 @@ const profileManageBillingBtn = document.getElementById("profile-manage-billing-
 const profileSaveBtn = document.getElementById("profile-save-btn");
 
 let userProfileUnsub = null;
+let lastSyncedAvatarPhotoURL; // avoids redundant writes every time the profile snapshot fires
+
+// Keeps the public userAvatars/{email} lookup doc in sync with whatever
+// photoURL is on this user's (private) profile — whether that came from a
+// Google-account photo at signup or a manually-uploaded/cropped one — so
+// other project members can resolve this user's avatar image (see
+// getAvatarPhotoURL / buildAvatar).
+function syncOwnAvatarPhoto() {
+  if (!currentUser || !currentUser.email || !userProfile) return;
+  const url = userProfile.photoURL || null;
+  if (url === lastSyncedAvatarPhotoURL) return;
+  lastSyncedAvatarPhotoURL = url;
+  avatarsCollection
+    .doc(currentUser.email)
+    .set({ photoURL: url }, { merge: true })
+    .catch((err) => console.error("failed to sync avatar photo", err));
+}
 
 // Live-listens to the user's profile doc (instead of a one-time get()) so
 // that a plan change written server-side by the Stripe webhook — which can
@@ -1757,6 +1827,7 @@ function ensureUserProfile() {
         };
         ref.set(userProfile).catch((err) => console.error("failed to create user profile", err));
       }
+      syncOwnAvatarPhoto();
       updateUserInfoDisplay();
       updatePlanNote();
       updateDrawerPlanStatus();
