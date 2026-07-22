@@ -771,6 +771,9 @@ body {
 .cancel-add {
   background: none;
   color: #6b778c;
+  padding-left: 12px;
+  padding-right: 12px;
+  border-radius: 6px;
 }
 
 .card-text {
@@ -982,9 +985,11 @@ body {
   font-weight: 600;
   border: none;
   outline: none;
-  padding: 6px;
+  padding: 6px 0;
   border-radius: 6px;
   font-family: inherit;
+  width: 100%;
+  margin-bottom: 12px;
 }
 
 .modal-title-input:focus,
