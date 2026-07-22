@@ -410,6 +410,10 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
+  <!-- Google Identity Services: used only for the Googleカレンダー同期 feature,
+       to obtain a Calendar API access token independently of Firebase Auth's
+       own sign-in state (see app.js "Google Calendar sync" section). -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

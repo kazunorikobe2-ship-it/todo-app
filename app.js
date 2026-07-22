@@ -723,66 +723,81 @@ googleLoginBtn.addEventListener("click", () => {
 });
 
 // ---------- Google Calendar sync (実績時間の反映) ----------
-// Separate provider instance from the normal login `provider` above: this
-// one additionally requests read-only Calendar access, and is only ever
-// used when the user explicitly clicks "🗓️ 同期" — logging in normally
-// never asks for calendar permission. Clicking sync re-prompts Google for
-// this extra scope (incremental auth) and hands back a short-lived OAuth
-// access token, which is cached in memory for the rest of this page load.
-const calendarProvider = new firebase.auth.GoogleAuthProvider();
-calendarProvider.addScope("https://www.googleapis.com/auth/calendar.readonly");
-// Force Google to always show the full consent screen and issue a fresh
-// grant. Without this, re-requesting an additional scope for a user who's
-// already signed in with the same Google account can silently short-circuit
-// and come back with no OAuth access token at all (a known Firebase/Google
-// gotcha with incremental-scope popups).
-calendarProvider.setCustomParameters({ prompt: "consent" });
+// Requesting an *additional* OAuth scope for an already-signed-in Firebase
+// user via signInWithPopup(provider-with-extra-scope) turned out to be
+// unreliable in practice (observed both "credential without accessToken" and
+// "no credential at all" across repeated attempts, with no code change in
+// between — a known flaky pattern with Firebase's incremental-auth-via-popup
+// approach). Instead we get the Calendar access token directly through
+// Google Identity Services (GIS, accounts.google.com/gsi/client), completely
+// decoupled from Firebase Auth's own sign-in state. This is Google's
+// recommended approach for grabbing extra API scopes that aren't needed for
+// authentication itself, and it sidesteps the flakiness entirely.
+const GOOGLE_OAUTH_CLIENT_ID = "210201939866-7ur89mumpagh4u4lt54lgci5eg8c8s2t.apps.googleusercontent.com";
+const CALENDAR_READONLY_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
 const calendarSyncBtn = document.getElementById("calendar-sync-btn");
 
 let calendarAccessToken = null;
 let calendarAccessTokenExpiresAt = 0;
+let calendarTokenClient = null;
 
 // How far back to look for completed calendar events on each sync. Wide
 // enough that the user doesn't have to sync every single day, small enough
 // to keep each Calendar API call cheap and fast.
 const CALENDAR_SYNC_LOOKBACK_HOURS = 24 * 14;
 
+function getCalendarTokenClient() {
+  if (calendarTokenClient) return calendarTokenClient;
+  if (!window.google || !window.google.accounts || !window.google.accounts.oauth2) {
+    throw new Error("Google連携の読み込みに失敗しました。ページを再読み込みしてから、もう一度お試しください。");
+  }
+  calendarTokenClient = window.google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_OAUTH_CLIENT_ID,
+    scope: CALENDAR_READONLY_SCOPE,
+    callback: () => {}, // overridden per-request in getCalendarAccessToken()
+  });
+  return calendarTokenClient;
+}
+
 async function getCalendarAccessToken() {
   const now = Date.now();
   if (calendarAccessToken && now < calendarAccessTokenExpiresAt) return calendarAccessToken;
 
-  const result = await auth.signInWithPopup(calendarProvider);
-  const credential = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
-  // In some cases the reconstructed `credential` object comes back without
-  // .accessToken even though Google's raw token response actually contains
-  // one (under the SDK's internal _tokenResponse.oauthAccessToken field).
-  // Fall back to reading it directly before giving up entirely.
-  const rawTokenResponse = result && result._tokenResponse;
-  const accessToken =
-    (credential && credential.accessToken) ||
-    (rawTokenResponse && rawTokenResponse.oauthAccessToken) ||
-    null;
+  const tokenClient = getCalendarTokenClient();
+
+  const accessToken = await new Promise((resolve, reject) => {
+    tokenClient.callback = (tokenResponse) => {
+      if (!tokenResponse || tokenResponse.error) {
+        console.error("Googleカレンダーの認可に失敗しました:", tokenResponse);
+        reject(
+          new Error(
+            "Googleカレンダーへのアクセス許可を取得できませんでした(再度お試しください)"
+          )
+        );
+        return;
+      }
+      resolve(tokenResponse.access_token);
+    };
+    tokenClient.error_callback = (err) => {
+      console.error("Googleカレンダーの認可でエラーが発生しました:", err);
+      reject(
+        new Error(
+          "Googleカレンダーへのアクセス許可を取得できませんでした(再度お試しください)"
+        )
+      );
+    };
+    tokenClient.requestAccessToken({ prompt: "" });
+  });
 
   if (!accessToken) {
-    console.error("Googleカレンダーの認可結果にaccessTokenが含まれていません。診断情報:", {
-      hasCredential: !!credential,
-      credentialAccessToken: credential && credential.accessToken,
-      credentialIdToken: credential && credential.idToken,
-      credentialProviderId: credential && credential.providerId,
-      operationType: result && result.operationType,
-      rawTokenResponseKeys: rawTokenResponse ? Object.keys(rawTokenResponse) : null,
-      rawOauthAccessToken: rawTokenResponse && rawTokenResponse.oauthAccessToken,
-      rawOauthExpireIn: rawTokenResponse && rawTokenResponse.oauthExpireIn,
-      rawOauthScope: rawTokenResponse && (rawTokenResponse.oauthScope || rawTokenResponse.scope),
-      rawProviderId: rawTokenResponse && rawTokenResponse.providerId,
-    });
     throw new Error("Googleカレンダーへのアクセス許可を取得できませんでした(再度お試しください)");
   }
+
   calendarAccessToken = accessToken;
-  // Google's OAuth access tokens are typically valid ~1 hour; Firebase
-  // doesn't expose the exact expiry, so cache conservatively for 50 minutes
-  // and just re-prompt after that rather than risk using a stale token.
+  // Google's OAuth access tokens are typically valid ~1 hour; cache
+  // conservatively for 50 minutes and just re-prompt after that rather than
+  // risk using a stale token.
   calendarAccessTokenExpiresAt = now + 50 * 60 * 1000;
   return calendarAccessToken;
 }
