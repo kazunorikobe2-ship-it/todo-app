@@ -55,8 +55,11 @@ function handleBoardSnapshot(snap) {
     state = defaultState();
     boardRef.set(state);
   }
+  if (!Array.isArray(state.trash)) state.trash = [];
   renderBoard();
   syncModalIfOpen();
+  updateTrashBadge();
+  if (!trashModal.classList.contains("hidden")) renderTrash();
 }
 
 function handleBoardError(err) {
@@ -72,6 +75,7 @@ const authModal = document.getElementById("auth-modal");
 const googleLoginBtn = document.getElementById("google-login-btn");
 const userInfoEl = document.getElementById("user-info");
 const logoutBtn = document.getElementById("logout-btn");
+const trashBtn = document.getElementById("trash-btn");
 
 googleLoginBtn.addEventListener("click", () => {
   auth.signInWithPopup(provider).catch((err) => {
@@ -92,6 +96,7 @@ auth.onAuthStateChanged((user) => {
     userInfoEl.textContent = "👤 " + (user.displayName || user.email || "ログイン中");
     userInfoEl.classList.remove("hidden");
     logoutBtn.classList.remove("hidden");
+    trashBtn.classList.remove("hidden");
 
     if (!unsubscribeBoard) {
       unsubscribeBoard = boardRef.onSnapshot(handleBoardSnapshot, handleBoardError);
@@ -100,6 +105,8 @@ auth.onAuthStateChanged((user) => {
     authModal.classList.remove("hidden");
     userInfoEl.classList.add("hidden");
     logoutBtn.classList.add("hidden");
+    trashBtn.classList.add("hidden");
+    trashModal.classList.add("hidden");
     closeCardModal();
     board.innerHTML = "";
 
@@ -223,8 +230,12 @@ function renderBoard() {
       delBtn.title = "カードを削除";
       delBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        column.cards = column.cards.filter((c) => c.id !== card.id);
-        saveState();
+        openConfirmModal({
+          title: "削除しますか？",
+          message: "このカードはゴミ箱に移動します。ゴミ箱からいつでも復元・完全削除できます。",
+          okLabel: "削除する",
+          onConfirm: () => moveCardToTrash(column.id, card.id),
+        });
       });
       cardEl.appendChild(delBtn);
 
@@ -475,3 +486,174 @@ function syncModalIfOpen() {
   renderComments(found.card.comments || []);
   renderMembers(found.card.members || []);
 }
+
+// ---------- generic confirm modal ----------
+const confirmModal = document.getElementById("confirm-modal");
+const confirmModalTitle = document.getElementById("confirm-modal-title");
+const confirmModalMessage = document.getElementById("confirm-modal-message");
+const confirmModalCancelBtn = document.getElementById("confirm-modal-cancel-btn");
+const confirmModalOkBtn = document.getElementById("confirm-modal-ok-btn");
+
+let confirmModalAction = null;
+
+function openConfirmModal({ title, message, okLabel, onConfirm }) {
+  confirmModalTitle.textContent = title || "削除しますか？";
+  confirmModalMessage.textContent = message || "";
+  confirmModalOkBtn.textContent = okLabel || "削除する";
+  confirmModalAction = onConfirm;
+  confirmModal.classList.remove("hidden");
+}
+
+function closeConfirmModal() {
+  confirmModal.classList.add("hidden");
+  confirmModalAction = null;
+}
+
+confirmModalCancelBtn.addEventListener("click", closeConfirmModal);
+confirmModalOkBtn.addEventListener("click", () => {
+  const action = confirmModalAction;
+  closeConfirmModal();
+  if (action) action();
+});
+confirmModal.addEventListener("click", (e) => {
+  if (e.target === confirmModal) closeConfirmModal();
+});
+
+// ---------- trash ----------
+const trashModal = document.getElementById("trash-modal");
+const trashCloseBtn = document.getElementById("trash-close-btn");
+const trashListEl = document.getElementById("trash-list");
+const trashEmptyBtn = document.getElementById("trash-empty-btn");
+const trashCountBadge = document.getElementById("trash-count");
+
+function moveCardToTrash(columnId, cardId) {
+  const column = state.columns.find((c) => c.id === columnId);
+  if (!column) return;
+  const idx = column.cards.findIndex((c) => c.id === cardId);
+  if (idx === -1) return;
+  const [removedCard] = column.cards.splice(idx, 1);
+  state.trash = state.trash || [];
+  state.trash.unshift({
+    id: uid(),
+    card: removedCard,
+    fromColumnId: columnId,
+    deletedAt: new Date().toISOString(),
+  });
+  if (activeCardRef && activeCardRef.cardId === cardId) closeCardModal();
+  saveState();
+}
+
+function restoreFromTrash(trashItemId) {
+  const trash = state.trash || [];
+  const idx = trash.findIndex((t) => t.id === trashItemId);
+  if (idx === -1) return;
+  const [item] = trash.splice(idx, 1);
+  const targetColumn =
+    state.columns.find((c) => c.id === item.fromColumnId) || state.columns[0];
+  if (targetColumn) {
+    targetColumn.cards.push(item.card);
+  }
+  saveState();
+}
+
+function permanentlyDeleteTrashItem(trashItemId) {
+  state.trash = (state.trash || []).filter((t) => t.id !== trashItemId);
+  saveState();
+}
+
+function updateTrashBadge() {
+  const count = (state.trash || []).length;
+  if (count > 0) {
+    trashCountBadge.textContent = count > 99 ? "99+" : String(count);
+    trashCountBadge.classList.remove("hidden");
+  } else {
+    trashCountBadge.classList.add("hidden");
+  }
+}
+
+function renderTrash() {
+  const trash = state.trash || [];
+  trashListEl.innerHTML = "";
+
+  if (!trash.length) {
+    trashListEl.innerHTML = '<p class="trash-empty">ゴミ箱は空です</p>';
+    return;
+  }
+
+  trash.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "trash-item";
+
+    const info = document.createElement("div");
+    info.className = "trash-item-info";
+
+    const title = document.createElement("div");
+    title.className = "trash-item-title";
+    title.textContent = item.card.text;
+
+    const meta = document.createElement("div");
+    meta.className = "trash-item-meta";
+    const col = state.columns.find((c) => c.id === item.fromColumnId);
+    meta.textContent =
+      (col ? col.title : "不明なリスト") +
+      " ・ " +
+      new Date(item.deletedAt).toLocaleString("ja-JP");
+
+    info.appendChild(title);
+    info.appendChild(meta);
+
+    const actions = document.createElement("div");
+    actions.className = "trash-item-actions";
+
+    const restoreBtn = document.createElement("button");
+    restoreBtn.className = "restore-btn";
+    restoreBtn.textContent = "元に戻す";
+    restoreBtn.addEventListener("click", () => restoreFromTrash(item.id));
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "danger-btn small";
+    delBtn.textContent = "完全に削除";
+    delBtn.addEventListener("click", () => {
+      openConfirmModal({
+        title: "完全に削除しますか？",
+        message: "この操作は元に戻せません。",
+        okLabel: "完全に削除",
+        onConfirm: () => permanentlyDeleteTrashItem(item.id),
+      });
+    });
+
+    actions.appendChild(restoreBtn);
+    actions.appendChild(delBtn);
+
+    row.appendChild(info);
+    row.appendChild(actions);
+    trashListEl.appendChild(row);
+  });
+}
+
+trashBtn.addEventListener("click", () => {
+  renderTrash();
+  trashModal.classList.remove("hidden");
+});
+
+trashCloseBtn.addEventListener("click", () => {
+  trashModal.classList.add("hidden");
+});
+
+trashModal.addEventListener("click", (e) => {
+  if (e.target === trashModal) trashModal.classList.add("hidden");
+});
+
+trashEmptyBtn.addEventListener("click", () => {
+  const count = (state.trash || []).length;
+  if (!count) return;
+  openConfirmModal({
+    title: "ゴミ箱を空にしますか？",
+    message: `ゴミ箱内の${count}件のカードをすべて完全に削除します。この操作は元に戻せません。`,
+    okLabel: "すべて完全に削除",
+    onConfirm: () => {
+      state.trash = [];
+      saveState();
+    },
+  });
+});

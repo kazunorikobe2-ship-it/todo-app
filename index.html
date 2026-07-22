@@ -11,6 +11,7 @@
     <h1>📋 Kanban Board</h1>
     <div class="header-right">
       <span id="user-info" class="user-info hidden"></span>
+      <button id="trash-btn" class="trash-btn hidden" title="ゴミ箱">🗑️<span id="trash-count" class="trash-count hidden">0</span></button>
       <button id="logout-btn" class="logout-btn hidden">ログアウト</button>
       <button id="add-column-btn" class="add-column-btn">+ リストを追加</button>
     </div>
@@ -68,6 +69,31 @@
           <div id="modal-comments" class="comment-list"></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- 削除確認モーダル（共通） -->
+  <div id="confirm-modal" class="modal-overlay hidden">
+    <div class="modal-content small confirm-content">
+      <h2 id="confirm-modal-title">削除しますか？</h2>
+      <p id="confirm-modal-message" class="modal-sub"></p>
+      <div class="modal-actions">
+        <button id="confirm-modal-cancel-btn" class="cancel-add">キャンセル</button>
+        <button id="confirm-modal-ok-btn" class="danger-btn">削除する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ゴミ箱モーダル -->
+  <div id="trash-modal" class="modal-overlay hidden">
+    <div class="modal-content trash-content">
+      <button id="trash-close-btn" class="modal-close-x">✕</button>
+      <h2>🗑️ ゴミ箱</h2>
+      <p class="modal-sub">削除したカードの一覧。個別に完全削除するか、元に戻すことができます。</p>
+      <div class="trash-toolbar">
+        <button id="trash-empty-btn" class="danger-btn">すべて完全に削除</button>
+      </div>
+      <div id="trash-list" class="trash-list"></div>
     </div>
   </div>
 
