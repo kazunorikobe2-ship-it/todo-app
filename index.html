@@ -28,43 +28,44 @@
 
   <!-- カード詳細モーダル -->
   <div id="card-modal" class="modal-overlay hidden">
-    <div class="modal-content">
-      <div class="modal-header">
-        <input id="modal-title" class="modal-title-input" />
-        <button id="modal-close-btn" class="delete-column-btn">✕</button>
-      </div>
+    <div class="modal-content wide">
+      <button id="modal-close-btn" class="modal-close-x">✕</button>
 
-      <div class="modal-body">
-        <div class="modal-field">
-          <label>期日</label>
-          <input type="date" id="modal-due-date" />
+      <div class="modal-columns">
+        <div class="modal-left">
+          <input id="modal-title" class="modal-title-input" />
+
+          <div class="modal-field">
+            <label>期日</label>
+            <input type="date" id="modal-due-date" />
+          </div>
+
+          <div class="modal-field">
+            <label>重要度</label>
+            <select id="modal-priority">
+              <option value="">未設定</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+            </select>
+          </div>
+
+          <div class="modal-field">
+            <label>アサインメンバー</label>
+            <div id="modal-members" class="chip-list"></div>
+            <input type="text" id="modal-member-input" placeholder="名前を入力してEnter" />
+          </div>
+
+          <div class="modal-field">
+            <label>備考</label>
+            <textarea id="modal-notes" rows="5" placeholder="備考を入力..."></textarea>
+          </div>
         </div>
 
-        <div class="modal-field">
-          <label>重要度</label>
-          <select id="modal-priority">
-            <option value="">未設定</option>
-            <option value="low">低</option>
-            <option value="medium">中</option>
-            <option value="high">高</option>
-          </select>
-        </div>
-
-        <div class="modal-field">
-          <label>アサインメンバー</label>
-          <div id="modal-members" class="chip-list"></div>
-          <input type="text" id="modal-member-input" placeholder="名前を入力してEnter" />
-        </div>
-
-        <div class="modal-field">
-          <label>備考</label>
-          <textarea id="modal-notes" rows="3" placeholder="備考を入力..."></textarea>
-        </div>
-
-        <div class="modal-field">
-          <label>コメント</label>
+        <div class="modal-right">
+          <div class="modal-right-header">💬 コメントとアクティビティ</div>
+          <input type="text" id="modal-comment-input" class="comment-input-top" placeholder="コメントを入力してEnter" />
           <div id="modal-comments" class="comment-list"></div>
-          <input type="text" id="modal-comment-input" placeholder="コメントを入力してEnter" />
         </div>
       </div>
     </div>
