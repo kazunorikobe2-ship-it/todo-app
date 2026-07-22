@@ -558,6 +558,7 @@ function renderPublicShareError() {
 function renderAll() {
   renderProjectList();
   updatePlanNote();
+  updateDrawerPlanStatus();
   updateStorageAlert();
   const project = getActiveProject();
   projectTitleInput.value = project ? project.name : "Kanban Board";
@@ -769,6 +770,7 @@ auth.onAuthStateChanged((user) => {
     logoutBtn.classList.add("hidden");
     trashBtn.classList.add("hidden");
     publicShareBtn.classList.add("hidden");
+    drawerPlanStatusEl.classList.add("hidden");
     trashModal.classList.add("hidden");
     membersModal.classList.add("hidden");
     publicShareModal.classList.add("hidden");
@@ -826,6 +828,58 @@ function updatePlanNote() {
 }
 
 planNoteEl.addEventListener("click", () => openPlansModal());
+
+// ---------- drawer plan status (bottom of project list) ----------
+const drawerPlanStatusEl = document.getElementById("drawer-plan-status");
+const drawerPlanLabelEl = document.getElementById("drawer-plan-label");
+const drawerPlanRemainingEl = document.getElementById("drawer-plan-remaining");
+const drawerPlanChangeBtn = document.getElementById("drawer-plan-change-btn");
+
+// Whole-days remaining until the given ISO date, compared at the
+// calendar-day level (not a raw ms diff) so "today" never reads as -1.
+function daysRemainingUntil(isoStr) {
+  if (!isoStr) return null;
+  const target = new Date(isoStr);
+  if (isNaN(target.getTime())) return null;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfTarget = new Date(target.getFullYear(), target.getMonth(), target.getDate());
+  return Math.round((startOfTarget - startOfToday) / (24 * 60 * 60 * 1000));
+}
+
+// Shows the signed-in user's current plan + remaining period at the very
+// bottom of the project drawer, with a button that opens the plan
+// comparison modal so upgrading/downgrading is reachable from anywhere.
+function updateDrawerPlanStatus() {
+  const shouldShow = !!currentUser && !isPublicShareMode;
+  drawerPlanStatusEl.classList.toggle("hidden", !shouldShow);
+  if (!shouldShow) return;
+
+  const plan = effectivePlanForCurrentUser();
+  drawerPlanLabelEl.textContent = `現在のプラン: ${planLimitsFor(plan).label}`;
+
+  let remainingText = "";
+  if (isAdminUser(currentUser)) {
+    remainingText = "管理者・制限なし";
+  } else if (userProfile && userProfile.planCancelAtPeriodEnd && userProfile.currentPeriodEnd) {
+    const days = daysRemainingUntil(userProfile.currentPeriodEnd);
+    remainingText =
+      days !== null && days >= 0
+        ? `あと${days}日でFreeへ変更(${formatDateJP(userProfile.currentPeriodEnd)})`
+        : `${formatDateJP(userProfile.currentPeriodEnd)}にFreeへ変更`;
+  } else if (plan !== "free" && userProfile && userProfile.currentPeriodEnd) {
+    const days = daysRemainingUntil(userProfile.currentPeriodEnd);
+    remainingText =
+      days !== null && days >= 0
+        ? `次回更新まであと${days}日(${formatDateJP(userProfile.currentPeriodEnd)})`
+        : `次回更新日: ${formatDateJP(userProfile.currentPeriodEnd)}`;
+  } else if (plan === "free") {
+    remainingText = "期間の定めなし";
+  }
+  drawerPlanRemainingEl.textContent = remainingText;
+}
+
+drawerPlanChangeBtn.addEventListener("click", () => openPlansModal());
 
 // ---------- storage quota header alert ----------
 const storageAlertBannerEl = document.getElementById("storage-alert-banner");
@@ -1239,6 +1293,7 @@ function ensureUserProfile() {
       }
       updateUserInfoDisplay();
       updatePlanNote();
+      updateDrawerPlanStatus();
       applyViewState();
       if (!plansModal.classList.contains("hidden")) refreshPlansModalState();
       if (!profileModal.classList.contains("hidden")) refreshProfileModalPlanInfo();
