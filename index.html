@@ -174,7 +174,18 @@
 
           <div class="modal-field">
             <label>備考</label>
-            <textarea id="modal-notes" rows="5" placeholder="備考を入力..."></textarea>
+            <div id="modal-notes-toolbar" class="notes-toolbar">
+              <button type="button" class="notes-toolbar-btn" data-cmd="bold" title="太字"><b>B</b></button>
+              <button type="button" class="notes-toolbar-btn" data-cmd="italic" title="斜体"><i>I</i></button>
+              <button type="button" class="notes-toolbar-btn" data-cmd="insertUnorderedList" title="箇条書き">☰</button>
+              <button type="button" class="notes-toolbar-btn" data-cmd="insertOrderedList" title="番号付きリスト">①☰</button>
+            </div>
+            <div
+              id="modal-notes"
+              class="notes-editor"
+              contenteditable="true"
+              data-placeholder="備考を入力..."
+            ></div>
           </div>
 
           <div class="modal-field">

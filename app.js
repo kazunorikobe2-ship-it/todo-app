@@ -2874,6 +2874,7 @@ const modalCustomFieldsEl = document.getElementById("modal-custom-fields");
 const modalMembersEl = document.getElementById("modal-members");
 const modalMemberInput = document.getElementById("modal-member-input");
 const modalNotes = document.getElementById("modal-notes");
+const modalNotesToolbar = document.getElementById("modal-notes-toolbar");
 const modalCommentsEl = document.getElementById("modal-comments");
 const modalCommentInput = document.getElementById("modal-comment-input");
 const modalCommentSendBtn = document.getElementById("modal-comment-send-btn");
@@ -2933,7 +2934,8 @@ function applyModalEditability(editable) {
   modalStartDate.disabled = !editable;
   modalDueDate.disabled = !editable;
   modalPriority.disabled = !editable;
-  modalNotes.disabled = !editable;
+  modalNotes.contentEditable = editable ? "true" : "false";
+  modalNotesToolbar.classList.toggle("hidden", !editable);
   modalMemberInput.disabled = !editable;
   modalCommentInput.disabled = !editable;
   modalCommentSendBtn.disabled = !editable;
@@ -3154,7 +3156,7 @@ function populateModal(card, project) {
   modalDueDate.value = card.dueDate || "";
   renderModalPriorityOptions(project, card.priority || "");
   renderModalCustomFields(project, card);
-  modalNotes.value = card.notes || "";
+  modalNotes.innerHTML = card.notes || "";
   renderMembers(card.members || []);
   renderComments(card.comments || []);
   renderAttachments(card.attachments || []);
@@ -3543,13 +3545,83 @@ modalPriority.addEventListener("change", () => {
   saveProject(found.project);
 });
 
-modalNotes.addEventListener("change", () => {
+// ---------- 備考 (notes) rich-text editor: bold/italic/bullet/numbered list ----------
+// Strips anything that could execute (script/style/iframe tags, inline
+// event-handler attributes, javascript: URLs) before it's saved. Notes are
+// shared with every editor/viewer on the project, so this is stored,
+// multi-user HTML — worth a defense-in-depth pass even though pasted
+// content is already forced to plain text below.
+function sanitizeNotesHtml(html) {
+  const template = document.createElement("template");
+  template.innerHTML = html;
+  const strip = (root) => {
+    Array.from(root.childNodes).forEach((node) => {
+      if (node.nodeType !== 1) return;
+      const tag = node.tagName.toLowerCase();
+      if (["script", "style", "iframe", "object", "embed"].includes(tag)) {
+        node.remove();
+        return;
+      }
+      Array.from(node.attributes).forEach((attr) => {
+        const name = attr.name.toLowerCase();
+        const value = attr.value || "";
+        if (name.startsWith("on") || /^\s*javascript:/i.test(value)) {
+          node.removeAttribute(attr.name);
+        }
+      });
+      strip(node);
+    });
+  };
+  strip(template.content);
+  return template.innerHTML;
+}
+
+function saveModalNotes() {
   if (!activeCardRef) return;
   const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
   if (!found) return;
-  found.card.notes = modalNotes.value;
+  found.card.notes = sanitizeNotesHtml(modalNotes.innerHTML);
   saveProject(found.project);
+}
+
+modalNotes.addEventListener("blur", saveModalNotes);
+
+// Pasting is forced to plain text only — accepting arbitrary pasted HTML
+// (e.g. from a webpage) would be the main way something unwanted could end
+// up embedded in a note that's then shared with every project member.
+modalNotes.addEventListener("paste", (e) => {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData("text/plain");
+  document.execCommand("insertText", false, text);
 });
+
+function updateNotesToolbarState() {
+  modalNotesToolbar.querySelectorAll(".notes-toolbar-btn").forEach((btn) => {
+    let active = false;
+    try {
+      active = document.queryCommandState(btn.dataset.cmd);
+    } catch (err) {
+      active = false;
+    }
+    btn.classList.toggle("active", active);
+  });
+}
+
+modalNotesToolbar.querySelectorAll(".notes-toolbar-btn").forEach((btn) => {
+  // mousedown (not click) + preventDefault, so clicking the toolbar button
+  // doesn't steal focus/selection away from the notes editor before the
+  // formatting command has a chance to apply to the selected text.
+  btn.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    if (modalNotes.contentEditable !== "true") return;
+    document.execCommand(btn.dataset.cmd, false, null);
+    updateNotesToolbarState();
+  });
+});
+
+modalNotes.addEventListener("keyup", updateNotesToolbarState);
+modalNotes.addEventListener("mouseup", updateNotesToolbarState);
+modalNotes.addEventListener("focus", updateNotesToolbarState);
 
 modalMemberInput.addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;

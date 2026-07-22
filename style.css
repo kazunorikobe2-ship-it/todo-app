@@ -1882,6 +1882,78 @@ body {
   resize: vertical;
 }
 
+/* ---------- notes (備考) rich-text editor ---------- */
+
+.notes-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.notes-toolbar-btn {
+  border: 1px solid #dcdfe4;
+  background: #fff;
+  color: #42526e;
+  border-radius: 6px;
+  width: 30px;
+  height: 28px;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notes-toolbar-btn:hover {
+  background: #f4f5f7;
+}
+
+.notes-toolbar-btn.active {
+  background: #e4e9ff;
+  border-color: #5067c5;
+  color: #3f52a3;
+}
+
+.notes-editor {
+  width: 100%;
+  min-height: 110px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+  margin-bottom: 8px;
+  overflow-y: auto;
+}
+
+.notes-editor:focus {
+  outline: none;
+  border-color: #5067c5;
+}
+
+.notes-editor:empty::before {
+  content: attr(data-placeholder);
+  color: #8993a4;
+}
+
+.notes-editor ul,
+.notes-editor ol {
+  margin: 4px 0;
+  padding-left: 22px;
+}
+
+.notes-editor p {
+  margin: 0 0 6px;
+}
+
+.notes-editor[contenteditable="false"] {
+  background: #f4f5f7;
+  color: #5e6c84;
+  cursor: default;
+}
+
 .chip-list {
   display: flex;
   flex-wrap: wrap;
