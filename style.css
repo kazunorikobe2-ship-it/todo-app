@@ -1714,13 +1714,15 @@ body {
   background: rgba(255, 255, 255, 0.35);
 }
 
-.calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
+.calendar-grid-wrap {
   background: rgba(255, 255, 255, 0.15);
   padding: 6px;
   border-radius: 8px;
+}
+
+.calendar-weekday-row {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
 }
 
 .calendar-weekday {
@@ -1728,38 +1730,72 @@ body {
   font-size: 12px;
   font-weight: 600;
   text-align: center;
-  padding: 4px 0;
+  padding: 4px 0 8px;
+}
+
+.calendar-week {
+  position: relative;
+}
+
+.calendar-week-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
 }
 
 .calendar-cell {
   background: #fff;
-  border-radius: 6px;
   min-height: 90px;
   padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow: hidden;
+  box-sizing: border-box;
+  border-top: 1px solid #e4e7ec;
+  border-right: 1px solid #e4e7ec;
+  position: relative;
+}
+
+.calendar-week:first-child .calendar-cell {
+  border-top: none;
+}
+
+.calendar-week-days .calendar-cell:nth-child(7n) {
+  border-right: none;
+}
+
+.calendar-week:first-child .calendar-cell:first-child {
+  border-top-left-radius: 6px;
+}
+
+.calendar-week:first-child .calendar-cell:nth-child(7) {
+  border-top-right-radius: 6px;
 }
 
 .calendar-cell.empty {
-  background: transparent;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .calendar-cell.today {
   outline: 2px solid #5067c5;
+  outline-offset: -2px;
+  z-index: 1;
 }
 
 .calendar-date-num {
   font-size: 12px;
   font-weight: 600;
   color: #5e6c84;
+  height: 16px;
+}
+
+/* Reserves vertical space in the cell for the range bars overlaid on top of
+   this week row, so single-day chips (added below) don't get covered. */
+.calendar-range-spacer {
+  height: calc(var(--lane-count, 0) * 20px);
 }
 
 .calendar-card-chip {
   background: #dfe1e6;
   border-radius: 4px;
   padding: 2px 6px;
+  margin-top: 4px;
   font-size: 11px;
   cursor: pointer;
   overflow: hidden;
@@ -1771,21 +1807,58 @@ body {
   filter: brightness(0.95);
 }
 
-.calendar-card-chip.range {
-  border-left: 3px solid #5067c5;
-  padding-left: 4px;
+/* Multi-day cards: one continuous bar per card, positioned as an overlay
+   spanning the days it covers within each week row (instead of a chip
+   repeated in every day cell). */
+.calendar-week-bars {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 22px;
+  pointer-events: none;
 }
 
-.calendar-card-chip.range-start {
-  border-radius: 4px 2px 2px 4px;
+.calendar-range-bar {
+  position: absolute;
+  height: 16px;
+  line-height: 16px;
+  font-size: 10px;
+  color: #fff;
+  background: #5067c5;
+  padding: 0 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  pointer-events: auto;
+  border-radius: 4px;
 }
 
-.calendar-card-chip.range-end {
-  border-left: none;
-  border-right: 3px solid #5067c5;
-  border-radius: 2px 4px 4px 2px;
-  padding-left: 6px;
-  padding-right: 4px;
+.calendar-range-bar:hover {
+  filter: brightness(1.1);
+}
+
+.calendar-range-bar.continues-before {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.calendar-range-bar.continues-after {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.calendar-range-bar.priority-high {
+  background: #eb5a46;
+}
+
+.calendar-range-bar.priority-medium {
+  background: #f2a94e;
+}
+
+.calendar-range-bar.priority-low {
+  background: #4bce97;
 }
 
 /* ---------- timeline view ---------- */

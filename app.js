@@ -1628,7 +1628,13 @@ function renderCalendarView() {
   header.appendChild(todayBtn);
   panel.appendChild(header);
 
-  const cardsByDate = {};
+  // Multi-day cards (both startDate and dueDate set, different days) become
+  // a single continuous bar spanning the days, instead of one chip repeated
+  // in every day cell. Single-day cards (only one date, or a same-day
+  // start/due) still render as a small chip inside their one day cell.
+  const rangeEvents = [];
+  const singleDayCardsByDate = {};
+
   project.columns.forEach((column) => {
     column.cards.forEach((card) => {
       if (!card.dueDate && !card.startDate) return;
@@ -1636,77 +1642,133 @@ function renderCalendarView() {
       const endStr = card.dueDate || card.startDate;
       const isRange = !!(card.startDate && card.dueDate && card.startDate !== card.dueDate);
 
-      const cursor = new Date(startStr + "T00:00:00");
-      const end = new Date(endStr + "T00:00:00");
-      let guard = 0;
-      while (cursor <= end && guard < 366) {
-        const dateStr = cursor.toISOString().slice(0, 10);
-        const rangePos = !isRange
-          ? null
-          : dateStr === startStr
-          ? "start"
-          : dateStr === endStr
-          ? "end"
-          : "mid";
-        (cardsByDate[dateStr] = cardsByDate[dateStr] || []).push({ card, column, isRange, rangePos });
-        cursor.setDate(cursor.getDate() + 1);
-        guard++;
+      if (isRange) {
+        rangeEvents.push({
+          card,
+          column,
+          start: new Date(startStr + "T00:00:00"),
+          end: new Date(endStr + "T00:00:00"),
+        });
+      } else {
+        (singleDayCardsByDate[endStr] = singleDayCardsByDate[endStr] || []).push({ card, column });
       }
     });
   });
 
-  const grid = document.createElement("div");
-  grid.className = "calendar-grid";
-
-  ["日", "月", "火", "水", "木", "金", "土"].forEach((d) => {
-    const cell = document.createElement("div");
-    cell.className = "calendar-weekday";
-    cell.textContent = d;
-    grid.appendChild(cell);
+  // Assign each range event a vertical "lane" once for the whole visible
+  // month (classic greedy interval-scheduling), so a multi-week card keeps
+  // the same lane in every week row it passes through instead of jumping
+  // up/down between rows.
+  rangeEvents.sort((a, b) => a.start - b.start);
+  const laneEndDates = [];
+  rangeEvents.forEach((ev) => {
+    let lane = laneEndDates.findIndex((endDate) => endDate < ev.start);
+    if (lane === -1) {
+      lane = laneEndDates.length;
+      laneEndDates.push(ev.end);
+    } else {
+      laneEndDates[lane] = ev.end;
+    }
+    ev.lane = lane;
   });
 
   const firstDay = new Date(year, month, 1);
   const startOffset = firstDay.getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const todayStr = new Date().toISOString().slice(0, 10);
+  const totalCells = startOffset + daysInMonth;
+  const totalWeeks = Math.ceil(totalCells / 7);
+  const LANE_HEIGHT = 20; // px per stacked range-bar lane
 
-  for (let i = 0; i < startOffset; i++) {
-    const cell = document.createElement("div");
-    cell.className = "calendar-cell empty";
-    grid.appendChild(cell);
-  }
+  const gridWrap = document.createElement("div");
+  gridWrap.className = "calendar-grid-wrap";
 
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    const cell = document.createElement("div");
-    cell.className = "calendar-cell" + (dateStr === todayStr ? " today" : "");
+  const weekdayRow = document.createElement("div");
+  weekdayRow.className = "calendar-weekday-row";
+  ["日", "月", "火", "水", "木", "金", "土"].forEach((d) => {
+    const el = document.createElement("div");
+    el.className = "calendar-weekday";
+    el.textContent = d;
+    weekdayRow.appendChild(el);
+  });
+  gridWrap.appendChild(weekdayRow);
 
-    const num = document.createElement("div");
-    num.className = "calendar-date-num";
-    num.textContent = String(d);
-    cell.appendChild(num);
+  for (let w = 0; w < totalWeeks; w++) {
+    const weekStartCellIndex = w * 7;
+    const colDate = (i) => new Date(year, month, weekStartCellIndex + i - startOffset + 1);
+    const weekStartDate = colDate(0);
+    const weekEndDate = colDate(6);
 
-    (cardsByDate[dateStr] || []).forEach(({ card, column, isRange, rangePos }) => {
-      const chip = document.createElement("div");
-      chip.className = "calendar-card-chip";
-      if (card.priority) chip.classList.add(`priority-${card.priority}`);
-      if (isRange) {
-        chip.classList.add("range");
-        if (rangePos === "start") chip.classList.add("range-start");
-        if (rangePos === "end") chip.classList.add("range-end");
+    const weekEl = document.createElement("div");
+    weekEl.className = "calendar-week";
+
+    const daysGrid = document.createElement("div");
+    daysGrid.className = "calendar-week-days";
+
+    for (let i = 0; i < 7; i++) {
+      const dayNum = weekStartCellIndex + i - startOffset + 1;
+      const cell = document.createElement("div");
+
+      if (dayNum < 1 || dayNum > daysInMonth) {
+        cell.className = "calendar-cell empty";
+      } else {
+        const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+        cell.className = "calendar-cell" + (dateStr === todayStr ? " today" : "");
+
+        const num = document.createElement("div");
+        num.className = "calendar-date-num";
+        num.textContent = String(dayNum);
+        cell.appendChild(num);
+
+        const spacer = document.createElement("div");
+        spacer.className = "calendar-range-spacer";
+        cell.appendChild(spacer);
+
+        (singleDayCardsByDate[dateStr] || []).forEach(({ card, column }) => {
+          const chip = document.createElement("div");
+          chip.className = "calendar-card-chip";
+          if (card.priority) chip.classList.add(`priority-${card.priority}`);
+          chip.textContent = card.text;
+          chip.title = column.title + (card.dueDate ? `\n${card.dueDate}` : "");
+          chip.addEventListener("click", () => openCardModal(column.id, card.id));
+          cell.appendChild(chip);
+        });
       }
-      chip.textContent = card.text;
-      chip.title =
-        column.title +
-        (isRange ? `\n${card.startDate} 〜 ${card.dueDate}` : card.dueDate ? `\n${card.dueDate}` : "");
-      chip.addEventListener("click", () => openCardModal(column.id, card.id));
-      cell.appendChild(chip);
+
+      daysGrid.appendChild(cell);
+    }
+    weekEl.appendChild(daysGrid);
+
+    const weekEvents = rangeEvents.filter((ev) => ev.end >= weekStartDate && ev.start <= weekEndDate);
+    const laneCount = weekEvents.length ? Math.max(...weekEvents.map((ev) => ev.lane)) + 1 : 0;
+    weekEl.style.setProperty("--lane-count", String(laneCount));
+
+    const barsLayer = document.createElement("div");
+    barsLayer.className = "calendar-week-bars";
+
+    weekEvents.forEach((ev) => {
+      const clippedStartCol = Math.max(0, Math.round((ev.start - weekStartDate) / 86400000));
+      const clippedEndCol = Math.min(6, Math.round((ev.end - weekStartDate) / 86400000));
+
+      const bar = document.createElement("div");
+      bar.className = "calendar-range-bar";
+      if (ev.card.priority) bar.classList.add(`priority-${ev.card.priority}`);
+      if (ev.start < weekStartDate) bar.classList.add("continues-before");
+      if (ev.end > weekEndDate) bar.classList.add("continues-after");
+      bar.style.left = (clippedStartCol / 7) * 100 + "%";
+      bar.style.width = ((clippedEndCol - clippedStartCol + 1) / 7) * 100 + "%";
+      bar.style.top = ev.lane * LANE_HEIGHT + "px";
+      bar.textContent = ev.card.text;
+      bar.title = `${ev.column.title}\n${ev.card.startDate} 〜 ${ev.card.dueDate}`;
+      bar.addEventListener("click", () => openCardModal(ev.column.id, ev.card.id));
+      barsLayer.appendChild(bar);
     });
 
-    grid.appendChild(cell);
+    weekEl.appendChild(barsLayer);
+    gridWrap.appendChild(weekEl);
   }
 
-  panel.appendChild(grid);
+  panel.appendChild(gridWrap);
 }
 
 // ---------- timeline view ----------
