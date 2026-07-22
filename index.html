@@ -348,6 +348,15 @@
     </div>
   </div>
 
+  <!-- 添付画像フルスクリーンスライドショー（ダッシュボードの添付ファイル一覧から） -->
+  <div id="attachment-slideshow-modal" class="slideshow-overlay hidden">
+    <button id="slideshow-close-btn" class="slideshow-close-btn" title="閉じる">✕</button>
+    <button id="slideshow-prev-btn" class="slideshow-nav-btn slideshow-prev-btn" title="前へ">‹</button>
+    <img id="slideshow-image" class="slideshow-image" alt="" />
+    <button id="slideshow-next-btn" class="slideshow-nav-btn slideshow-next-btn" title="次へ">›</button>
+    <div id="slideshow-caption" class="slideshow-caption"></div>
+  </div>
+
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>

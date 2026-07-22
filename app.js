@@ -219,6 +219,10 @@ function formatFileSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + " MB";
 }
 
+function isImageAttachment(att) {
+  return !!(att && att.type && att.type.startsWith("image/"));
+}
+
 async function uploadFile(file, pathPrefix) {
   const fileId = uid();
   const safeName = file.name.replace(/[^\w.\-]+/g, "_");
@@ -2437,6 +2441,11 @@ function renderDashboardView() {
   attachmentsTitle.textContent = `添付ファイル一覧 (${attachmentEntries.length})`;
   attachmentsSection.appendChild(attachmentsTitle);
 
+  // Image attachments get their own list (in display order) so clicking one
+  // opens the full-screen slideshow and can page through the others via
+  // prev/next, rather than jumping between unrelated file types.
+  const imageAttachmentEntries = attachmentEntries.filter((entry) => isImageAttachment(entry.att));
+
   if (!attachmentEntries.length) {
     const p = document.createElement("p");
     p.className = "table-empty";
@@ -2446,7 +2455,18 @@ function renderDashboardView() {
     attachmentEntries.forEach(({ att, card, column }) => {
       const row = document.createElement("div");
       row.className = "dashboard-attachment-row";
-      row.addEventListener("click", () => openCardModal(column.id, card.id));
+      // Clicking an attachment opens the file itself (not the linked card):
+      // images open in the full-screen slideshow (with prev/next across the
+      // other image attachments), everything else opens the raw file URL in
+      // a new tab.
+      row.addEventListener("click", () => {
+        if (isImageAttachment(att)) {
+          const idx = imageAttachmentEntries.findIndex((entry) => entry.att === att);
+          openAttachmentSlideshow(imageAttachmentEntries, idx >= 0 ? idx : 0);
+        } else if (att.url) {
+          window.open(att.url, "_blank", "noopener,noreferrer");
+        }
+      });
 
       const icon = document.createElement("span");
       icon.className = "dashboard-attachment-icon";
@@ -2521,6 +2541,66 @@ function renderDashboardView() {
   }
   panel.appendChild(membersSection);
 }
+
+// ---------- attachment slideshow (full-screen image viewer, dashboard) ----------
+// Clicking an image attachment in the dashboard's attachment list opens this
+// full-screen overlay instead of the raw image URL, and lets you page
+// through every other image attachment in that same list via prev/next.
+const slideshowModal = document.getElementById("attachment-slideshow-modal");
+const slideshowImageEl = document.getElementById("slideshow-image");
+const slideshowCaptionEl = document.getElementById("slideshow-caption");
+const slideshowCloseBtn = document.getElementById("slideshow-close-btn");
+const slideshowPrevBtn = document.getElementById("slideshow-prev-btn");
+const slideshowNextBtn = document.getElementById("slideshow-next-btn");
+
+let slideshowEntries = [];
+let slideshowIndex = 0;
+
+function renderSlideshowFrame() {
+  const entry = slideshowEntries[slideshowIndex];
+  if (!entry) return;
+  slideshowImageEl.src = entry.att.url;
+  slideshowImageEl.alt = entry.att.name || "";
+  slideshowCaptionEl.textContent = `${entry.att.name || ""} ・ ${entry.card.text} (${entry.column.title}) ・ ${
+    slideshowIndex + 1
+  } / ${slideshowEntries.length}`;
+  const multiple = slideshowEntries.length > 1;
+  slideshowPrevBtn.classList.toggle("hidden", !multiple);
+  slideshowNextBtn.classList.toggle("hidden", !multiple);
+}
+
+function openAttachmentSlideshow(entries, startIndex) {
+  if (!entries || !entries.length) return;
+  slideshowEntries = entries;
+  slideshowIndex = ((startIndex % entries.length) + entries.length) % entries.length;
+  renderSlideshowFrame();
+  slideshowModal.classList.remove("hidden");
+}
+
+function closeAttachmentSlideshow() {
+  slideshowModal.classList.add("hidden");
+  slideshowImageEl.src = "";
+  slideshowEntries = [];
+}
+
+function slideshowStep(delta) {
+  if (!slideshowEntries.length) return;
+  slideshowIndex = (slideshowIndex + delta + slideshowEntries.length) % slideshowEntries.length;
+  renderSlideshowFrame();
+}
+
+slideshowCloseBtn.addEventListener("click", closeAttachmentSlideshow);
+slideshowPrevBtn.addEventListener("click", () => slideshowStep(-1));
+slideshowNextBtn.addEventListener("click", () => slideshowStep(1));
+slideshowModal.addEventListener("click", (e) => {
+  if (e.target === slideshowModal) closeAttachmentSlideshow();
+});
+document.addEventListener("keydown", (e) => {
+  if (slideshowModal.classList.contains("hidden")) return;
+  if (e.key === "Escape") closeAttachmentSlideshow();
+  else if (e.key === "ArrowLeft") slideshowStep(-1);
+  else if (e.key === "ArrowRight") slideshowStep(1);
+});
 
 // ---------- card detail modal ----------
 const cardModal = document.getElementById("card-modal");
