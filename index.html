@@ -34,6 +34,7 @@
         <div class="header-right">
           <div id="member-avatars" class="member-avatar-stack hidden" title="メンバーを表示"></div>
           <span id="user-info" class="user-info hidden"></span>
+          <button id="public-share-btn" class="public-share-btn hidden" title="公開共有(Businessプラン)">🔗</button>
           <button id="trash-btn" class="trash-btn hidden" title="ゴミ箱">🗑️<span id="trash-count" class="trash-count hidden">0</span></button>
           <button id="logout-btn" class="logout-btn hidden">ログアウト</button>
           <button id="add-column-btn" class="add-column-btn">+ リストを追加</button>
@@ -224,18 +225,6 @@
       <h2 id="members-modal-title">👥 メンバー</h2>
       <div id="members-list" class="members-list"></div>
 
-      <div id="public-share-section" class="public-share-section hidden">
-        <div class="member-group-label">🔗 公開共有(Businessプラン)</div>
-        <label class="public-share-toggle-row">
-          <input type="checkbox" id="public-share-toggle" />
-          リンクを知っている人は誰でも閲覧できるようにする
-        </label>
-        <div id="public-share-link-row" class="public-share-link-row hidden">
-          <input type="text" id="public-share-url" readonly />
-          <button id="public-share-copy-btn" class="link-btn small">コピー</button>
-        </div>
-      </div>
-
       <div id="invite-form" class="invite-form hidden">
         <input type="email" id="invite-email-input" placeholder="メールアドレス" />
         <select id="invite-role-select">
@@ -247,6 +236,23 @@
       <p id="invite-note" class="modal-sub hidden">
         招待したメールアドレスのアカウントでログインすると、このプロジェクトにアクセスできるようになります(メールは送信されません。招待したことを別途本人に伝えてください)。
       </p>
+    </div>
+  </div>
+
+  <!-- 公開共有モーダル -->
+  <div id="public-share-modal" class="modal-overlay hidden">
+    <div class="modal-content small">
+      <button id="public-share-close-btn" class="modal-close-x">✕</button>
+      <h2>🔗 公開共有(Businessプラン)</h2>
+      <p class="modal-sub">リンクを知っている人は誰でも(ログインしていなくても)このプロジェクトを閲覧専用で見られるようにします。</p>
+      <label class="public-share-toggle-row">
+        <input type="checkbox" id="public-share-toggle" />
+        リンクを知っている人は誰でも閲覧できるようにする
+      </label>
+      <div id="public-share-link-row" class="public-share-link-row hidden">
+        <input type="text" id="public-share-url" readonly />
+        <button id="public-share-copy-btn" class="link-btn small">コピー</button>
+      </div>
     </div>
   </div>
 

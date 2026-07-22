@@ -576,6 +576,7 @@ function renderAll() {
   const editable = canEditProject(project);
   addColumnBtn.classList.toggle("hidden", !editable);
   trashBtn.classList.toggle("hidden", !currentUser || !editable);
+  publicShareBtn.classList.toggle("hidden", !currentUser || !project || !isOwnerOfProject(project));
   renderMemberAvatars();
 
   if (currentView === "board") renderBoard();
@@ -767,8 +768,10 @@ auth.onAuthStateChanged((user) => {
     userInfoEl.classList.add("hidden");
     logoutBtn.classList.add("hidden");
     trashBtn.classList.add("hidden");
+    publicShareBtn.classList.add("hidden");
     trashModal.classList.add("hidden");
     membersModal.classList.add("hidden");
+    publicShareModal.classList.add("hidden");
     profileModal.classList.add("hidden");
     memberAvatarsEl.classList.add("hidden");
     closeCardModal();
@@ -988,7 +991,9 @@ const inviteNote = document.getElementById("invite-note");
 const inviteEmailInput = document.getElementById("invite-email-input");
 const inviteRoleSelect = document.getElementById("invite-role-select");
 const inviteSubmitBtn = document.getElementById("invite-submit-btn");
-const publicShareSection = document.getElementById("public-share-section");
+const publicShareBtn = document.getElementById("public-share-btn");
+const publicShareModal = document.getElementById("public-share-modal");
+const publicShareCloseBtn = document.getElementById("public-share-close-btn");
 const publicShareToggle = document.getElementById("public-share-toggle");
 const publicShareLinkRow = document.getElementById("public-share-link-row");
 const publicShareUrlInput = document.getElementById("public-share-url");
@@ -1094,27 +1099,45 @@ function renderMembersModal() {
 
   inviteForm.classList.toggle("hidden", !isOwner);
   inviteNote.classList.toggle("hidden", !isOwner);
+}
 
-  const canManageShare = isOwner && effectivePlanForProject(project) === "business";
-  publicShareSection.classList.toggle("hidden", !canManageShare);
-  if (canManageShare) {
-    publicShareToggle.checked = !!project.publicShareEnabled;
-    publicShareLinkRow.classList.toggle("hidden", !project.publicShareEnabled);
-    if (project.publicShareEnabled) {
-      publicShareUrlInput.value = buildShareUrl(project.id);
-    }
+// ---------- public share modal (header 🔗 icon, Business-plan only) ----------
+function openPublicShareModal() {
+  const project = getActiveProject();
+  if (!project || !isOwnerOfProject(project)) return;
+  if (effectivePlanForProject(project) !== "business") {
+    openPlansModal();
+    return;
+  }
+  renderPublicShareModal();
+  publicShareModal.classList.remove("hidden");
+}
+
+function renderPublicShareModal() {
+  const project = getActiveProject();
+  if (!project) return;
+  publicShareToggle.checked = !!project.publicShareEnabled;
+  publicShareLinkRow.classList.toggle("hidden", !project.publicShareEnabled);
+  if (project.publicShareEnabled) {
+    publicShareUrlInput.value = buildShareUrl(project.id);
   }
 }
 
+publicShareBtn.addEventListener("click", openPublicShareModal);
+publicShareCloseBtn.addEventListener("click", () => publicShareModal.classList.add("hidden"));
+publicShareModal.addEventListener("click", (e) => {
+  if (e.target === publicShareModal) publicShareModal.classList.add("hidden");
+});
+
 publicShareToggle.addEventListener("change", () => {
-  const project = state.projects.find((p) => p.id === membersModalProjectId);
+  const project = getActiveProject();
   if (!project || !isOwnerOfProject(project) || effectivePlanForProject(project) !== "business") {
     publicShareToggle.checked = false;
     return;
   }
   project.publicShareEnabled = publicShareToggle.checked;
   saveProject(project);
-  renderMembersModal();
+  renderPublicShareModal();
 });
 
 publicShareCopyBtn.addEventListener("click", () => {

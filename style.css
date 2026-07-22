@@ -207,6 +207,7 @@ body {
 .public-share-mode #drawer-toggle-btn,
 .public-share-mode #add-column-btn,
 .public-share-mode #trash-btn,
+.public-share-mode #public-share-btn,
 .public-share-mode #user-info,
 .public-share-mode #logout-btn,
 .public-share-mode #member-avatars {
@@ -299,12 +300,6 @@ body {
   font-size: 13px;
 }
 
-.public-share-section {
-  border-top: 1px solid #eee;
-  padding-top: 12px;
-  margin-bottom: 12px;
-}
-
 .public-share-toggle-row {
   display: flex;
   align-items: center;
@@ -312,6 +307,7 @@ body {
   font-size: 13px;
   color: #172b4d;
   cursor: pointer;
+  margin-top: 4px;
 }
 
 .public-share-link-row {
@@ -625,6 +621,21 @@ body {
 }
 
 .trash-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.public-share-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.public-share-btn:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
