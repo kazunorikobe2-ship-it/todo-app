@@ -421,8 +421,31 @@ const modalCommentsEl = document.getElementById("modal-comments");
 const modalCommentInput = document.getElementById("modal-comment-input");
 const modalAttachmentsEl = document.getElementById("modal-attachments");
 const modalAttachmentInput = document.getElementById("modal-attachment-input");
+const modalAttachmentLabel = document.getElementById("modal-attachment-label");
+const modalAttachmentUploadingEl = document.getElementById("modal-attachment-uploading");
 const modalCommentFileInput = document.getElementById("modal-comment-file-input");
 const pendingFileEl = document.getElementById("modal-comment-pending-file");
+
+function setAttachmentUploading(isUploading) {
+  if (isUploading) {
+    modalAttachmentUploadingEl.classList.remove("hidden");
+    modalAttachmentLabel.classList.add("disabled");
+  } else {
+    modalAttachmentUploadingEl.classList.add("hidden");
+    modalAttachmentLabel.classList.remove("disabled");
+  }
+}
+
+function showPendingFileUploading(file) {
+  pendingFileEl.classList.remove("hidden");
+  pendingFileEl.innerHTML = "";
+  const spinner = document.createElement("span");
+  spinner.className = "spinner";
+  const label = document.createElement("span");
+  label.textContent = "アップロード中… " + file.name;
+  pendingFileEl.appendChild(spinner);
+  pendingFileEl.appendChild(label);
+}
 
 let pendingCommentFile = null;
 
@@ -523,6 +546,7 @@ modalAttachmentInput.addEventListener("change", async () => {
   const targetColumnId = activeCardRef.columnId;
   const targetCardId = activeCardRef.cardId;
 
+  setAttachmentUploading(true);
   try {
     const attachment = await uploadFile(file, `kanban/cards/${targetCardId}`);
     const found = findCard(targetColumnId, targetCardId);
@@ -536,6 +560,8 @@ modalAttachmentInput.addEventListener("change", async () => {
   } catch (err) {
     console.error("upload failed", err);
     alert("ファイルのアップロードに失敗しました: " + err.message);
+  } finally {
+    setAttachmentUploading(false);
   }
 });
 
@@ -663,19 +689,26 @@ modalCommentInput.addEventListener("keydown", async (e) => {
   const fileToUpload = pendingCommentFile;
 
   modalCommentInput.value = "";
-  pendingCommentFile = null;
-  renderPendingFile();
+  modalCommentInput.disabled = true;
 
   let attachment = null;
   if (fileToUpload) {
+    showPendingFileUploading(fileToUpload);
     try {
       attachment = await uploadFile(fileToUpload, `kanban/comments/${targetCardId}`);
     } catch (err) {
       console.error("upload failed", err);
       alert("ファイルのアップロードに失敗しました: " + err.message);
+      modalCommentInput.disabled = false;
+      pendingCommentFile = fileToUpload;
+      renderPendingFile();
       return;
     }
   }
+
+  pendingCommentFile = null;
+  renderPendingFile();
+  modalCommentInput.disabled = false;
 
   const found = findCard(targetColumnId, targetCardId);
   if (!found) return;

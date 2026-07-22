@@ -65,10 +65,13 @@
           <div class="modal-field">
             <label>添付ファイル</label>
             <div id="modal-attachments" class="attachment-list"></div>
-            <label class="file-input-label">
+            <label id="modal-attachment-label" class="file-input-label">
               📎 ファイルを選択
               <input type="file" id="modal-attachment-input" class="file-input-hidden" />
             </label>
+            <div id="modal-attachment-uploading" class="upload-status hidden">
+              <span class="spinner"></span>アップロード中...
+            </div>
             <p class="field-hint">1ファイルあたり5MBまで</p>
           </div>
         </div>
