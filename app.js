@@ -731,6 +731,12 @@ googleLoginBtn.addEventListener("click", () => {
 // access token, which is cached in memory for the rest of this page load.
 const calendarProvider = new firebase.auth.GoogleAuthProvider();
 calendarProvider.addScope("https://www.googleapis.com/auth/calendar.readonly");
+// Force Google to always show the full consent screen and issue a fresh
+// grant. Without this, re-requesting an additional scope for a user who's
+// already signed in with the same Google account can silently short-circuit
+// and come back with no OAuth access token at all (a known Firebase/Google
+// gotcha with incremental-scope popups).
+calendarProvider.setCustomParameters({ prompt: "consent" });
 
 const calendarSyncBtn = document.getElementById("calendar-sync-btn");
 
@@ -749,7 +755,8 @@ async function getCalendarAccessToken() {
   const result = await auth.signInWithPopup(calendarProvider);
   const credential = firebase.auth.GoogleAuthProvider.credentialFromResult(result);
   if (!credential || !credential.accessToken) {
-    throw new Error("Googleカレンダーへのアクセス許可を取得できませんでした");
+    console.error("Googleカレンダーの認可結果にaccessTokenが含まれていません:", result);
+    throw new Error("Googleカレンダーへのアクセス許可を取得できませんでした(再度お試しください)");
   }
   calendarAccessToken = credential.accessToken;
   // Google's OAuth access tokens are typically valid ~1 hour; Firebase
