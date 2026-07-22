@@ -1663,6 +1663,20 @@ body {
   text-transform: uppercase;
 }
 
+.kanban-table th.sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.kanban-table th.sortable-th:hover {
+  color: #172b4d;
+}
+
+.kanban-table .sort-arrow {
+  font-size: 10px;
+  margin-left: 2px;
+}
+
 .kanban-table tbody tr {
   cursor: pointer;
 }
@@ -2010,6 +2024,48 @@ body {
   color: #172b4d;
   border-bottom: 1px solid #f0f0f0;
   cursor: pointer;
+}
+
+.dashboard-attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #172b4d;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+
+.dashboard-attachment-row:hover,
+.dashboard-upcoming-row:hover {
+  background: #f4f5f7;
+}
+
+.dashboard-attachment-icon {
+  flex-shrink: 0;
+}
+
+.dashboard-attachment-name {
+  flex-shrink: 0;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-attachment-size {
+  flex-shrink: 0;
+  color: #6b778c;
+  font-size: 12px;
+}
+
+.dashboard-attachment-card {
+  flex: 1;
+  color: #6b778c;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dashboard-upcoming-row:hover {

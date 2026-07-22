@@ -1500,6 +1500,27 @@ function renderBoard() {
 }
 
 // ---------- table view ----------
+const PRIORITY_RANK = { none: 0, low: 1, medium: 2, high: 3 };
+let tableSortKey = null;
+let tableSortDir = 1; // 1 = ascending, -1 = descending
+
+function tableRowSortValue(row, key) {
+  switch (key) {
+    case "list":
+      return row.column.title || "";
+    case "start":
+      return row.card.startDate || "";
+    case "due":
+      return row.card.dueDate || "";
+    case "priority":
+      return PRIORITY_RANK[row.card.priority || "none"];
+    case "members":
+      return (row.card.members || []).slice().sort().join(", ");
+    default:
+      return "";
+  }
+}
+
 function renderTableView() {
   const project = getActiveProject();
   const panel = viewPanels.table;
@@ -1519,12 +1540,56 @@ function renderTableView() {
     return;
   }
 
+  if (tableSortKey) {
+    rows.sort((a, b) => {
+      const av = tableRowSortValue(a, tableSortKey);
+      const bv = tableRowSortValue(b, tableSortKey);
+      if (av < bv) return -1 * tableSortDir;
+      if (av > bv) return 1 * tableSortDir;
+      return 0;
+    });
+  }
+
   const table = document.createElement("table");
   table.className = "kanban-table";
 
   const thead = document.createElement("thead");
-  thead.innerHTML =
-    "<tr><th>タイトル</th><th>リスト</th><th>開始日</th><th>期日</th><th>重要度</th><th>メンバー</th><th>💬</th><th>📎</th></tr>";
+  const headTr = document.createElement("tr");
+  [
+    { label: "タイトル", key: null },
+    { label: "リスト", key: "list" },
+    { label: "開始日", key: "start" },
+    { label: "期日", key: "due" },
+    { label: "重要度", key: "priority" },
+    { label: "メンバー", key: "members" },
+    { label: "💬", key: null },
+    { label: "📎", key: null },
+  ].forEach(({ label, key }) => {
+    const th = document.createElement("th");
+    const labelSpan = document.createElement("span");
+    labelSpan.textContent = label;
+    th.appendChild(labelSpan);
+    if (key) {
+      th.classList.add("sortable-th");
+      if (tableSortKey === key) {
+        const arrow = document.createElement("span");
+        arrow.className = "sort-arrow";
+        arrow.textContent = tableSortDir === 1 ? " ▲" : " ▼";
+        th.appendChild(arrow);
+      }
+      th.addEventListener("click", () => {
+        if (tableSortKey === key) {
+          tableSortDir = -tableSortDir;
+        } else {
+          tableSortKey = key;
+          tableSortDir = 1;
+        }
+        renderTableView();
+      });
+    }
+    headTr.appendChild(th);
+  });
+  thead.appendChild(headTr);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
@@ -1961,6 +2026,109 @@ function renderDashboardView() {
       });
   }
   panel.appendChild(upcomingSection);
+
+  // ---- attachments across all cards (including per-comment attachments) ----
+  const attachmentEntries = [];
+  project.columns.forEach((column) => {
+    column.cards.forEach((card) => {
+      (card.attachments || []).forEach((att) => {
+        attachmentEntries.push({ att, card, column });
+      });
+      (card.comments || []).forEach((c) => {
+        if (c && c.attachment) attachmentEntries.push({ att: c.attachment, card, column });
+      });
+    });
+  });
+
+  const attachmentsSection = document.createElement("div");
+  attachmentsSection.className = "dashboard-section";
+  const attachmentsTitle = document.createElement("h3");
+  attachmentsTitle.textContent = `添付ファイル一覧 (${attachmentEntries.length})`;
+  attachmentsSection.appendChild(attachmentsTitle);
+
+  if (!attachmentEntries.length) {
+    const p = document.createElement("p");
+    p.className = "table-empty";
+    p.textContent = "添付ファイルはありません";
+    attachmentsSection.appendChild(p);
+  } else {
+    attachmentEntries.forEach(({ att, card, column }) => {
+      const row = document.createElement("div");
+      row.className = "dashboard-attachment-row";
+      row.addEventListener("click", () => openCardModal(column.id, card.id));
+
+      const icon = document.createElement("span");
+      icon.className = "dashboard-attachment-icon";
+      icon.textContent = "📎";
+      row.appendChild(icon);
+
+      const nameEl = document.createElement("span");
+      nameEl.className = "dashboard-attachment-name";
+      nameEl.textContent = att.name || "";
+      row.appendChild(nameEl);
+
+      const sizeEl = document.createElement("span");
+      sizeEl.className = "dashboard-attachment-size";
+      sizeEl.textContent = formatFileSize(att.size);
+      row.appendChild(sizeEl);
+
+      const cardEl = document.createElement("span");
+      cardEl.className = "dashboard-attachment-card";
+      cardEl.textContent = `${card.text} (${column.title})`;
+      row.appendChild(cardEl);
+
+      attachmentsSection.appendChild(row);
+    });
+  }
+  panel.appendChild(attachmentsSection);
+
+  // ---- assigned members and how many cards each is assigned to ----
+  const memberCounts = {};
+  project.columns.forEach((column) => {
+    column.cards.forEach((card) => {
+      (card.members || []).forEach((m) => {
+        memberCounts[m] = (memberCounts[m] || 0) + 1;
+      });
+    });
+  });
+  const memberStats = Object.entries(memberCounts)
+    .map(([email, count]) => ({ email, count }))
+    .sort((a, b) => b.count - a.count);
+
+  const membersSection = document.createElement("div");
+  membersSection.className = "dashboard-section";
+  const membersTitle = document.createElement("h3");
+  membersTitle.textContent = "メンバーごとの担当カード数";
+  membersSection.appendChild(membersTitle);
+
+  if (!memberStats.length) {
+    const p = document.createElement("p");
+    p.className = "table-empty";
+    p.textContent = "アサインされたメンバーはいません";
+    membersSection.appendChild(p);
+  } else {
+    const maxMemberCount = Math.max(1, ...memberStats.map((m) => m.count));
+    memberStats.forEach(({ email, count }) => {
+      const barRow = document.createElement("div");
+      barRow.className = "dashboard-bar-row";
+
+      const label = document.createElement("div");
+      label.className = "dashboard-bar-label";
+      label.textContent = `${email} (${count})`;
+
+      const barWrap = document.createElement("div");
+      barWrap.className = "dashboard-bar-wrap";
+      const bar = document.createElement("div");
+      bar.className = "dashboard-bar";
+      bar.style.width = (count / maxMemberCount) * 100 + "%";
+      barWrap.appendChild(bar);
+
+      barRow.appendChild(label);
+      barRow.appendChild(barWrap);
+      membersSection.appendChild(barRow);
+    });
+  }
+  panel.appendChild(membersSection);
 }
 
 // ---------- card detail modal ----------
