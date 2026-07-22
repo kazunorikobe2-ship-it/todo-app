@@ -41,6 +41,7 @@
         <div class="header-right">
           <div id="member-avatars" class="member-avatar-stack hidden" title="メンバーを表示"></div>
           <span id="user-info" class="user-info hidden"></span>
+          <button id="project-settings-btn" class="project-settings-btn hidden" title="プロジェクト設定(重要度・管理項目)">⚙️</button>
           <button id="public-share-btn" class="public-share-btn hidden" title="公開共有(Businessプラン)">🔗</button>
           <button id="trash-btn" class="trash-btn hidden" title="ゴミ箱">🗑️<span id="trash-count" class="trash-count hidden">0</span></button>
           <button id="logout-btn" class="logout-btn hidden">ログアウト</button>
@@ -120,6 +121,10 @@
 
       <div class="modal-columns">
         <div class="modal-left">
+          <div id="modal-card-toolbar" class="modal-card-toolbar">
+            <button id="modal-duplicate-btn" class="modal-toolbar-btn" type="button">📋 複製</button>
+            <button id="modal-delete-btn" class="modal-toolbar-btn danger" type="button">🗑️ 削除</button>
+          </div>
           <input id="modal-title" class="modal-title-input" />
 
           <div class="modal-field">
@@ -159,6 +164,8 @@
             </select>
           </div>
 
+          <div id="modal-custom-fields" class="custom-fields-wrap"></div>
+
           <div class="modal-field">
             <label>アサインメンバー</label>
             <div id="modal-members" class="chip-list"></div>
@@ -188,11 +195,12 @@
           <div class="modal-right-header">💬 コメントとアクティビティ</div>
           <div id="modal-comment-pending-file" class="pending-file hidden"></div>
           <div class="comment-input-row">
-            <input type="text" id="modal-comment-input" class="comment-input-top" placeholder="コメントを入力してEnter" />
+            <input type="text" id="modal-comment-input" class="comment-input-top" placeholder="コメントを入力" />
             <label class="attach-icon-btn" title="ファイルを添付">
               📎
               <input type="file" id="modal-comment-file-input" class="file-input-hidden" />
             </label>
+            <button id="modal-comment-send-btn" class="comment-send-btn" type="button">送信</button>
           </div>
           <div id="modal-comments" class="comment-list"></div>
         </div>
@@ -259,6 +267,30 @@
       <div id="public-share-link-row" class="public-share-link-row hidden">
         <input type="text" id="public-share-url" readonly />
         <button id="public-share-copy-btn" class="link-btn small">コピー</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- プロジェクト設定モーダル(重要度・管理項目) -->
+  <div id="project-settings-modal" class="modal-overlay hidden">
+    <div class="modal-content project-settings-content">
+      <button id="project-settings-close-btn" class="modal-close-x">✕</button>
+      <h2>⚙️ プロジェクト設定</h2>
+
+      <div class="settings-section">
+        <h3>重要度</h3>
+        <p class="modal-sub">カードの重要度の選択肢を追加・削除・名称変更できます。</p>
+        <div id="priority-options-list" class="priority-options-list"></div>
+        <button id="add-priority-btn" class="link-btn small" type="button">+ 重要度を追加</button>
+      </div>
+
+      <div class="settings-section">
+        <h3>管理項目</h3>
+        <p class="modal-sub">
+          カードに表示する独自の項目を追加できます(テキスト入力、またはプルダウン選択式)。
+        </p>
+        <div id="custom-fields-settings-list" class="custom-fields-settings-list"></div>
+        <button id="add-custom-field-btn" class="link-btn small" type="button">+ 管理項目を追加</button>
       </div>
     </div>
   </div>

@@ -254,6 +254,7 @@ body {
 .public-share-mode #add-column-btn,
 .public-share-mode #trash-btn,
 .public-share-mode #public-share-btn,
+.public-share-mode #project-settings-btn,
 .public-share-mode #user-info,
 .public-share-mode #logout-btn,
 .public-share-mode #member-avatars {
@@ -371,6 +372,150 @@ body {
   min-width: 0;
   color: #5e6c84;
   background: #f4f5f7;
+}
+
+/* ---------- project settings modal (priority options + custom fields) ---------- */
+
+.project-settings-content {
+  width: 560px;
+  max-width: 92vw;
+  max-height: 82vh;
+  overflow-y: auto;
+}
+
+.settings-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #eee;
+}
+
+.settings-section:first-of-type {
+  margin-top: 14px;
+}
+
+.settings-section h3 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.priority-options-list,
+.custom-fields-settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.priority-option-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f4f5f7;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.priority-color-input {
+  width: 28px;
+  height: 28px;
+  border: none;
+  padding: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+
+.priority-label-input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.priority-delete-btn,
+.custom-field-delete-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #6b778c;
+  font-size: 13px;
+  flex-shrink: 0;
+  padding: 2px 4px;
+}
+
+.priority-delete-btn:hover,
+.custom-field-delete-btn:hover {
+  color: #b04632;
+}
+
+.custom-field-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f4f5f7;
+  border-radius: 6px;
+  padding: 8px;
+  flex-wrap: wrap;
+}
+
+.custom-field-name-input {
+  flex: 1;
+  min-width: 100px;
+  padding: 6px 8px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.custom-field-type-select {
+  padding: 6px 6px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.custom-field-options-input {
+  flex: 1 1 100%;
+  padding: 6px 8px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* ---------- card modal: custom fields (per-card values) ---------- */
+
+.custom-fields-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.custom-fields-wrap:not(:empty) {
+  margin-bottom: 16px;
+}
+
+.custom-field-item label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5e6c84;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.custom-field-item input[type="text"],
+.custom-field-item select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  box-sizing: border-box;
 }
 
 /* ---------- plans comparison modal ---------- */
@@ -701,6 +846,21 @@ body {
 }
 
 .public-share-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.project-settings-btn {
+  background: rgba(255, 255, 255, 0.15);
+  border: none;
+  color: #fff;
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.project-settings-btn:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
@@ -1591,6 +1751,35 @@ body {
   gap: 10px;
 }
 
+.modal-card-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.modal-toolbar-btn {
+  border: 1px solid #dcdfe4;
+  background: #fff;
+  color: #42526e;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.modal-toolbar-btn:hover {
+  background: #f4f5f7;
+}
+
+.modal-toolbar-btn.danger {
+  color: #b04632;
+  border-color: #f0c4bb;
+}
+
+.modal-toolbar-btn.danger:hover {
+  background: #fff0ee;
+}
+
 .modal-title-input {
   flex: 1;
   font-size: 18px;
@@ -1688,11 +1877,74 @@ body {
   font-size: 11px;
   color: #6b778c;
   margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.comment-meta-author {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comment-meta-edited {
+  font-style: italic;
+}
+
+.comment-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.comment-action-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: #8993a4;
+  font-size: 11px;
+  padding: 1px 3px;
+}
+
+.comment-action-btn:hover {
+  color: #172b4d;
+}
+
+.comment-action-btn.danger:hover {
+  color: #b04632;
 }
 
 .comment-text {
   font-size: 14px;
   white-space: pre-wrap;
+}
+
+.comment-edit-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #dcdfe4;
+  border-radius: 6px;
+  resize: vertical;
+  margin-bottom: 6px;
+}
+
+.comment-edit-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.comment-edit-actions button {
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .comment-attachment {
@@ -1872,6 +2124,28 @@ body {
 
 .attach-icon-btn:hover {
   background: #eef0f3;
+}
+
+.comment-send-btn {
+  flex-shrink: 0;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: #5067c5;
+  color: #fff;
+}
+
+.comment-send-btn:hover {
+  background: #3f52a3;
+}
+
+.comment-send-btn:disabled {
+  background: #dfe1e6;
+  color: #6b778c;
+  cursor: default;
 }
 
 .pending-file {

@@ -15,6 +15,7 @@ function makeCard(text) {
     comments: [],
     attachments: [],
     cover: null,
+    customFieldValues: {},
   };
 }
 
@@ -59,6 +60,8 @@ function makeProject(name, seedSampleData) {
     memberEmails: [],
     columns,
     trash: [],
+    priorityOptions: null,
+    customFields: [],
   };
 }
 
@@ -331,11 +334,82 @@ function buildAvatar(email, sizeClass) {
   return el;
 }
 
-function priorityLabel(p) {
-  if (p === "high") return "高";
-  if (p === "medium") return "中";
-  if (p === "low") return "低";
-  return "";
+// ---------- priority (重要度) options: per-project, user-editable ----------
+// Historically this was a fixed 3-tier high/medium/low enum. It's now a
+// per-project list of { id, label, color } that owners/editors can add to,
+// remove from, and rename via the project settings modal. Projects that
+// haven't customized it yet just fall back to this default list (and only
+// get their own `priorityOptions` array written to Firestore the first time
+// someone actually edits it — see ensurePriorityOptions).
+const DEFAULT_PRIORITY_OPTIONS = [
+  { id: "high", label: "高", color: "#eb5a46" },
+  { id: "medium", label: "中", color: "#f2a94e" },
+  { id: "low", label: "低", color: "#4bce97" },
+];
+
+function getPriorityOptions(project) {
+  project = project || getActiveProject();
+  if (project && Array.isArray(project.priorityOptions) && project.priorityOptions.length) {
+    return project.priorityOptions;
+  }
+  return DEFAULT_PRIORITY_OPTIONS;
+}
+
+// Mutates `project` to give it its own real priorityOptions array (seeded
+// from the defaults) if it doesn't have one yet — call this before adding /
+// removing / renaming an option, since you can't persist a change into a
+// shared constant array.
+function ensurePriorityOptions(project) {
+  if (!project.priorityOptions || !project.priorityOptions.length) {
+    project.priorityOptions = DEFAULT_PRIORITY_OPTIONS.map((o) => ({ ...o }));
+  }
+  return project.priorityOptions;
+}
+
+function findPriorityOption(priorityId, project) {
+  if (!priorityId) return null;
+  return getPriorityOptions(project).find((o) => o.id === priorityId) || null;
+}
+
+function priorityLabel(priorityId, project) {
+  const opt = findPriorityOption(priorityId, project);
+  return opt ? opt.label : "";
+}
+
+function priorityColor(priorityId, project) {
+  const opt = findPriorityOption(priorityId, project);
+  return opt ? opt.color : "#8590a2";
+}
+
+// Rank used for sorting the table view: earlier entries in the options list
+// are treated as more severe/important (matching the original high > medium
+// > low > none ordering), so index 0 gets the highest rank.
+function priorityRank(priorityId, project) {
+  if (!priorityId) return 0;
+  const options = getPriorityOptions(project);
+  const idx = options.findIndex((o) => o.id === priorityId);
+  return idx === -1 ? 0 : options.length - idx;
+}
+
+function hexToRgba(hex, alpha) {
+  const m = /^#([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return hex || "#8590a2";
+  const num = parseInt(m[1], 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Applies a priority's color to a small badge element (light tint
+// background + solid text color), used everywhere a priority badge is
+// rendered (board cards, table rows) instead of the old fixed
+// .priority-high/.priority-medium/.priority-low CSS classes, since colors
+// are now arbitrary per-project data rather than 3 fixed values.
+function applyPriorityBadgeStyle(el, priorityId, project) {
+  const color = priorityColor(priorityId, project);
+  el.style.background = hexToRgba(color, 0.18);
+  el.style.color = color;
 }
 
 // ---------- state & firestore ----------
@@ -495,6 +569,8 @@ function handleProjectsSnapshot(querySnap) {
       memberEmails: Array.isArray(data.memberEmails) ? data.memberEmails : [],
       columns: Array.isArray(data.columns) ? data.columns : [],
       trash: Array.isArray(data.trash) ? data.trash : [],
+      priorityOptions: Array.isArray(data.priorityOptions) ? data.priorityOptions : null,
+      customFields: Array.isArray(data.customFields) ? data.customFields : [],
     });
   });
 
@@ -540,6 +616,8 @@ function startPublicShareView(projectId) {
         memberEmails: Array.isArray(data.memberEmails) ? data.memberEmails : [],
         columns: Array.isArray(data.columns) ? data.columns : [],
         trash: [],
+        priorityOptions: Array.isArray(data.priorityOptions) ? data.priorityOptions : null,
+        customFields: Array.isArray(data.customFields) ? data.customFields : [],
       };
       state.projects = [project];
       currentProjectId = project.id;
@@ -582,6 +660,7 @@ function renderAll() {
   addColumnBtn.classList.toggle("hidden", !editable);
   trashBtn.classList.toggle("hidden", !currentUser || !editable);
   publicShareBtn.classList.toggle("hidden", !currentUser || !project || !isOwnerOfProject(project));
+  projectSettingsBtn.classList.toggle("hidden", !currentUser || !project || !editable);
   renderMemberAvatars();
 
   if (currentView === "board") renderBoard();
@@ -774,10 +853,12 @@ auth.onAuthStateChanged((user) => {
     logoutBtn.classList.add("hidden");
     trashBtn.classList.add("hidden");
     publicShareBtn.classList.add("hidden");
+    projectSettingsBtn.classList.add("hidden");
     drawerPlanStatusEl.classList.add("hidden");
     trashModal.classList.add("hidden");
     membersModal.classList.add("hidden");
     publicShareModal.classList.add("hidden");
+    projectSettingsModal.classList.add("hidden");
     profileModal.classList.add("hidden");
     memberAvatarsEl.classList.add("hidden");
     closeCardModal();
@@ -1216,6 +1297,166 @@ publicShareCopyBtn.addEventListener("click", () => {
     document.execCommand("copy");
     done();
   }
+});
+
+// ---------- project settings modal (⚙️ icon: priority options + custom fields) ----------
+const projectSettingsBtn = document.getElementById("project-settings-btn");
+const projectSettingsModal = document.getElementById("project-settings-modal");
+const projectSettingsCloseBtn = document.getElementById("project-settings-close-btn");
+const priorityOptionsListEl = document.getElementById("priority-options-list");
+const addPriorityBtn = document.getElementById("add-priority-btn");
+const customFieldsSettingsListEl = document.getElementById("custom-fields-settings-list");
+const addCustomFieldBtn = document.getElementById("add-custom-field-btn");
+
+function openProjectSettingsModal() {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  renderProjectSettingsModal();
+  projectSettingsModal.classList.remove("hidden");
+}
+
+function renderProjectSettingsModal() {
+  const project = getActiveProject();
+  if (!project) return;
+
+  // ---- priority options ----
+  priorityOptionsListEl.innerHTML = "";
+  getPriorityOptions(project).forEach((opt) => {
+    const row = document.createElement("div");
+    row.className = "priority-option-row";
+
+    const colorInput = document.createElement("input");
+    colorInput.type = "color";
+    colorInput.className = "priority-color-input";
+    colorInput.value = opt.color || "#8590a2";
+    colorInput.addEventListener("change", () => {
+      const options = ensurePriorityOptions(project);
+      const target = options.find((o) => o.id === opt.id);
+      if (target) target.color = colorInput.value;
+      saveProject(project);
+    });
+    row.appendChild(colorInput);
+
+    const labelInput = document.createElement("input");
+    labelInput.type = "text";
+    labelInput.className = "priority-label-input";
+    labelInput.value = opt.label;
+    labelInput.addEventListener("change", () => {
+      const options = ensurePriorityOptions(project);
+      const target = options.find((o) => o.id === opt.id);
+      if (target) target.label = labelInput.value.trim() || target.label;
+      saveProject(project);
+      renderProjectSettingsModal();
+    });
+    row.appendChild(labelInput);
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "priority-delete-btn";
+    deleteBtn.title = "この重要度を削除";
+    deleteBtn.textContent = "✕";
+    deleteBtn.addEventListener("click", () => {
+      const options = ensurePriorityOptions(project);
+      project.priorityOptions = options.filter((o) => o.id !== opt.id);
+      saveProject(project);
+      renderProjectSettingsModal();
+    });
+    row.appendChild(deleteBtn);
+
+    priorityOptionsListEl.appendChild(row);
+  });
+
+  // ---- custom fields ----
+  customFieldsSettingsListEl.innerHTML = "";
+  (project.customFields || []).forEach((field) => {
+    const row = document.createElement("div");
+    row.className = "custom-field-row";
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.className = "custom-field-name-input";
+    nameInput.placeholder = "項目名";
+    nameInput.value = field.name;
+    nameInput.addEventListener("change", () => {
+      field.name = nameInput.value.trim() || field.name;
+      saveProject(project);
+    });
+    row.appendChild(nameInput);
+
+    const typeSelect = document.createElement("select");
+    typeSelect.className = "custom-field-type-select";
+    [
+      { value: "text", label: "テキスト" },
+      { value: "select", label: "プルダウン" },
+    ].forEach(({ value, label }) => {
+      const optionEl = document.createElement("option");
+      optionEl.value = value;
+      optionEl.textContent = label;
+      typeSelect.appendChild(optionEl);
+    });
+    typeSelect.value = field.type === "select" ? "select" : "text";
+    typeSelect.addEventListener("change", () => {
+      field.type = typeSelect.value;
+      if (field.type === "select" && !Array.isArray(field.options)) field.options = [];
+      saveProject(project);
+      renderProjectSettingsModal();
+    });
+    row.appendChild(typeSelect);
+
+    if (field.type === "select") {
+      const optionsInput = document.createElement("input");
+      optionsInput.type = "text";
+      optionsInput.className = "custom-field-options-input";
+      optionsInput.placeholder = "選択肢をカンマ区切りで入力(例: 未着手,進行中,完了)";
+      optionsInput.value = (field.options || []).join(",");
+      optionsInput.addEventListener("change", () => {
+        field.options = optionsInput.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+        saveProject(project);
+      });
+      row.appendChild(optionsInput);
+    }
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "custom-field-delete-btn";
+    deleteBtn.title = "この管理項目を削除";
+    deleteBtn.textContent = "✕";
+    deleteBtn.addEventListener("click", () => {
+      project.customFields = (project.customFields || []).filter((f) => f.id !== field.id);
+      saveProject(project);
+      renderProjectSettingsModal();
+    });
+    row.appendChild(deleteBtn);
+
+    customFieldsSettingsListEl.appendChild(row);
+  });
+}
+
+projectSettingsBtn.addEventListener("click", openProjectSettingsModal);
+projectSettingsCloseBtn.addEventListener("click", () => projectSettingsModal.classList.add("hidden"));
+projectSettingsModal.addEventListener("click", (e) => {
+  if (e.target === projectSettingsModal) projectSettingsModal.classList.add("hidden");
+});
+
+addPriorityBtn.addEventListener("click", () => {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  const options = ensurePriorityOptions(project);
+  options.push({ id: uid(), label: "新しい重要度", color: "#8590a2" });
+  saveProject(project);
+  renderProjectSettingsModal();
+});
+
+addCustomFieldBtn.addEventListener("click", () => {
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  project.customFields = project.customFields || [];
+  project.customFields.push({ id: uid(), name: "新しい項目", type: "text" });
+  saveProject(project);
+  renderProjectSettingsModal();
 });
 
 inviteSubmitBtn.addEventListener("click", () => {
@@ -1739,8 +1980,9 @@ function renderBoard() {
 
       if (card.priority) {
         const b = document.createElement("span");
-        b.className = `badge priority-${card.priority}`;
-        b.textContent = priorityLabel(card.priority);
+        b.className = "badge";
+        applyPriorityBadgeStyle(b, card.priority, project);
+        b.textContent = priorityLabel(card.priority, project);
         badges.appendChild(b);
       }
       if (card.dueDate) {
@@ -1895,7 +2137,6 @@ function renderBoard() {
 }
 
 // ---------- table view ----------
-const PRIORITY_RANK = { none: 0, low: 1, medium: 2, high: 3 };
 let tableSortKey = null;
 let tableSortDir = 1; // 1 = ascending, -1 = descending
 
@@ -1908,7 +2149,7 @@ function tableRowSortValue(row, key) {
     case "due":
       return row.card.dueDate || "";
     case "priority":
-      return PRIORITY_RANK[row.card.priority || "none"];
+      return priorityRank(row.card.priority);
     case "members":
       return (row.card.members || []).slice().sort().join(", ");
     default:
@@ -2012,8 +2253,9 @@ function renderTableView() {
     const tdPriority = document.createElement("td");
     if (card.priority) {
       const b = document.createElement("span");
-      b.className = `badge priority-${card.priority}`;
-      b.textContent = priorityLabel(card.priority);
+      b.className = "badge";
+      applyPriorityBadgeStyle(b, card.priority, project);
+      b.textContent = priorityLabel(card.priority, project);
       tdPriority.appendChild(b);
     }
     tr.appendChild(tdPriority);
@@ -2187,7 +2429,7 @@ function renderCalendarView() {
         (singleDayCardsByDate[dateStr] || []).forEach(({ card, column }) => {
           const chip = document.createElement("div");
           chip.className = "calendar-card-chip";
-          if (card.priority) chip.classList.add(`priority-${card.priority}`);
+          if (card.priority) chip.style.background = priorityColor(card.priority, project);
           chip.textContent = card.text;
           chip.title = column.title + (card.dueDate ? `\n${card.dueDate}` : "");
           chip.addEventListener("click", () => openCardModal(column.id, card.id));
@@ -2212,7 +2454,7 @@ function renderCalendarView() {
 
       const bar = document.createElement("div");
       bar.className = "calendar-range-bar";
-      if (ev.card.priority) bar.classList.add(`priority-${ev.card.priority}`);
+      if (ev.card.priority) bar.style.background = priorityColor(ev.card.priority, project);
       if (ev.start < weekStartDate) bar.classList.add("continues-before");
       if (ev.end > weekEndDate) bar.classList.add("continues-after");
       bar.style.left = (clippedStartCol / 7) * 100 + "%";
@@ -2304,7 +2546,7 @@ function renderTimelineView() {
 
     const bar = document.createElement("div");
     bar.className = "timeline-bar";
-    if (card.priority) bar.classList.add(`priority-${card.priority}`);
+    if (card.priority) bar.style.background = priorityColor(card.priority, project);
     bar.style.left = leftPct + "%";
     bar.style.width = widthPct + "%";
     bar.title = `${startStr} 〜 ${endStr}`;
@@ -2327,7 +2569,9 @@ function renderDashboardView() {
   if (!project) return;
 
   let total = 0;
-  const byPriority = { high: 0, medium: 0, low: 0, none: 0 };
+  // Keyed by priority option id (dynamic, since priority options are now
+  // per-project and user-editable) rather than a fixed high/medium/low enum.
+  const byPriority = {};
   const byColumn = [];
   let overdue = 0;
   const upcoming = [];
@@ -2340,7 +2584,8 @@ function renderDashboardView() {
     byColumn.push({ title: column.title, count: column.cards.length });
     column.cards.forEach((card) => {
       total++;
-      byPriority[card.priority || "none"]++;
+      const key = card.priority || "none";
+      byPriority[key] = (byPriority[key] || 0) + 1;
       if (card.dueDate) {
         if (card.dueDate < todayStr) overdue++;
         else if (card.dueDate <= in7Str) upcoming.push({ card, column });
@@ -2367,7 +2612,16 @@ function renderDashboardView() {
   statsRow.appendChild(statTile("カード総数", total));
   statsRow.appendChild(statTile("期限切れ", overdue, overdue > 0 ? "stat-danger" : ""));
   statsRow.appendChild(statTile("7日以内に期限", upcoming.length));
-  statsRow.appendChild(statTile("高重要度", byPriority.high));
+  // The "top" priority tile tracks whichever option is first in the
+  // project's priority list (matching the high/medium/low ordering
+  // convention), so it keeps working after options are renamed/added/removed.
+  const topPriorityOption = getPriorityOptions(project)[0];
+  statsRow.appendChild(
+    statTile(
+      topPriorityOption ? `${topPriorityOption.label}重要度` : "重要度(最上位)",
+      topPriorityOption ? byPriority[topPriorityOption.id] || 0 : 0
+    )
+  );
   panel.appendChild(statsRow);
 
   const columnSection = document.createElement("div");
@@ -2606,14 +2860,18 @@ document.addEventListener("keydown", (e) => {
 const cardModal = document.getElementById("card-modal");
 const modalTitleInput = document.getElementById("modal-title");
 const modalCloseBtn = document.getElementById("modal-close-btn");
+const modalDuplicateBtn = document.getElementById("modal-duplicate-btn");
+const modalDeleteBtn = document.getElementById("modal-delete-btn");
 const modalStartDate = document.getElementById("modal-start-date");
 const modalDueDate = document.getElementById("modal-due-date");
 const modalPriority = document.getElementById("modal-priority");
+const modalCustomFieldsEl = document.getElementById("modal-custom-fields");
 const modalMembersEl = document.getElementById("modal-members");
 const modalMemberInput = document.getElementById("modal-member-input");
 const modalNotes = document.getElementById("modal-notes");
 const modalCommentsEl = document.getElementById("modal-comments");
 const modalCommentInput = document.getElementById("modal-comment-input");
+const modalCommentSendBtn = document.getElementById("modal-comment-send-btn");
 const modalAttachmentsEl = document.getElementById("modal-attachments");
 const modalAttachmentInput = document.getElementById("modal-attachment-input");
 const modalAttachmentLabel = document.getElementById("modal-attachment-label");
@@ -2665,17 +2923,23 @@ function findCard(columnId, cardId) {
 function applyModalEditability(editable) {
   cardModal.classList.toggle("read-only", !editable);
   modalTitleInput.disabled = !editable;
+  modalDuplicateBtn.classList.toggle("hidden", !editable);
+  modalDeleteBtn.classList.toggle("hidden", !editable);
   modalStartDate.disabled = !editable;
   modalDueDate.disabled = !editable;
   modalPriority.disabled = !editable;
   modalNotes.disabled = !editable;
   modalMemberInput.disabled = !editable;
   modalCommentInput.disabled = !editable;
+  modalCommentSendBtn.disabled = !editable;
   modalAttachmentLabel.classList.toggle("hidden", !editable);
   modalCommentFileInput.disabled = !editable;
   document.querySelector(".attach-icon-btn").classList.toggle("hidden", !editable);
   modalCoverControls.classList.toggle("hidden", !editable);
   modalCoverImageInput.disabled = !editable;
+  Array.from(modalCustomFieldsEl.querySelectorAll("input, select")).forEach((el) => {
+    el.disabled = !editable;
+  });
 }
 
 // ---------- card cover (color or image) ----------
@@ -2781,7 +3045,7 @@ function openCardModal(columnId, cardId) {
   const found = findCard(columnId, cardId);
   if (!found) return;
   activeCardRef = { columnId, cardId };
-  populateModal(found.card);
+  populateModal(found.card, found.project);
   applyModalEditability(canEditProject(found.project));
   cardModal.classList.remove("hidden");
 }
@@ -2796,11 +3060,95 @@ cardModal.addEventListener("click", (e) => {
   if (e.target === cardModal) closeCardModal();
 });
 
-function populateModal(card) {
+// Rebuilds the <select id="modal-priority"> options from the active
+// project's priority list every time the modal opens (or the project's
+// options change), since these are no longer a fixed high/medium/low enum.
+function renderModalPriorityOptions(project, currentPriorityId) {
+  modalPriority.innerHTML = "";
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "未設定";
+  modalPriority.appendChild(blank);
+
+  const options = getPriorityOptions(project);
+  options.forEach((opt) => {
+    const optionEl = document.createElement("option");
+    optionEl.value = opt.id;
+    optionEl.textContent = opt.label;
+    modalPriority.appendChild(optionEl);
+  });
+
+  // If the card references a priority option that's since been deleted,
+  // keep it selectable/visible (as its id) rather than silently reverting
+  // to blank, so the value isn't lost until the user actively changes it.
+  if (currentPriorityId && !options.some((o) => o.id === currentPriorityId)) {
+    const staleOption = document.createElement("option");
+    staleOption.value = currentPriorityId;
+    staleOption.textContent = `${currentPriorityId}(削除済み)`;
+    modalPriority.appendChild(staleOption);
+  }
+
+  modalPriority.value = currentPriorityId || "";
+}
+
+// Renders one input per custom field defined on the project (text or
+// select/dropdown), pre-filled from card.customFieldValues, into
+// #modal-custom-fields. Rebuilt from scratch every time the modal opens
+// since field definitions can differ per project and can change over time.
+function renderModalCustomFields(project, card) {
+  modalCustomFieldsEl.innerHTML = "";
+  const fields = (project && project.customFields) || [];
+  const values = card.customFieldValues || {};
+
+  fields.forEach((field) => {
+    const item = document.createElement("div");
+    item.className = "custom-field-item";
+
+    const label = document.createElement("label");
+    label.textContent = field.name;
+    item.appendChild(label);
+
+    let input;
+    if (field.type === "select") {
+      input = document.createElement("select");
+      const blank = document.createElement("option");
+      blank.value = "";
+      blank.textContent = "未設定";
+      input.appendChild(blank);
+      (field.options || []).forEach((optionLabel) => {
+        const optionEl = document.createElement("option");
+        optionEl.value = optionLabel;
+        optionEl.textContent = optionLabel;
+        input.appendChild(optionEl);
+      });
+      input.value = values[field.id] || "";
+    } else {
+      input = document.createElement("input");
+      input.type = "text";
+      input.value = values[field.id] || "";
+    }
+    input.dataset.fieldId = field.id;
+    input.addEventListener("change", () => {
+      if (!activeCardRef) return;
+      const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+      if (!found) return;
+      found.card.customFieldValues = found.card.customFieldValues || {};
+      found.card.customFieldValues[field.id] = input.value;
+      saveProject(found.project);
+    });
+
+    item.appendChild(input);
+    modalCustomFieldsEl.appendChild(item);
+  });
+}
+
+function populateModal(card, project) {
+  project = project || getActiveProject();
   modalTitleInput.value = card.text;
   modalStartDate.value = card.startDate || "";
   modalDueDate.value = card.dueDate || "";
-  modalPriority.value = card.priority || "";
+  renderModalPriorityOptions(project, card.priority || "");
+  renderModalCustomFields(project, card);
   modalNotes.value = card.notes || "";
   renderMembers(card.members || []);
   renderComments(card.comments || []);
@@ -2812,6 +3160,57 @@ function populateModal(card) {
 
   updateAttachmentHint();
 }
+
+// ---------- card duplicate / delete (from within the modal) ----------
+// Duplicates the card's content (title, dates, priority, members, notes,
+// custom field values, and a plain color cover). Comments and file
+// attachments are intentionally NOT copied: comments are a timestamped
+// conversation tied to the original card, and file/image attachments point
+// at a specific Firebase Storage path — copying the reference (rather than
+// re-uploading a real second copy of the file) would leave both cards
+// pointing at the same file, so deleting one card's attachments from the
+// trash later would silently break the other card's attachment too.
+function duplicateCard() {
+  if (!activeCardRef) return;
+  const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+  if (!found || !canEditProject(found.project)) return;
+
+  const original = found.card;
+  const copy = {
+    id: uid(),
+    text: `${original.text} のコピー`,
+    startDate: original.startDate || null,
+    dueDate: original.dueDate || null,
+    priority: original.priority || null,
+    notes: original.notes || "",
+    members: Array.isArray(original.members) ? [...original.members] : [],
+    comments: [],
+    attachments: [],
+    cover: original.cover && original.cover.type === "color" ? { ...original.cover } : null,
+    customFieldValues: original.customFieldValues ? { ...original.customFieldValues } : {},
+  };
+
+  const idx = found.column.cards.findIndex((c) => c.id === original.id);
+  found.column.cards.splice(idx === -1 ? found.column.cards.length : idx + 1, 0, copy);
+  saveProject(found.project);
+
+  activeCardRef = { columnId: found.column.id, cardId: copy.id };
+  populateModal(copy, found.project);
+  applyModalEditability(canEditProject(found.project));
+}
+
+modalDuplicateBtn.addEventListener("click", duplicateCard);
+
+modalDeleteBtn.addEventListener("click", () => {
+  if (!activeCardRef) return;
+  const { columnId, cardId } = activeCardRef;
+  openConfirmModal({
+    title: "削除しますか？",
+    message: "このカードはゴミ箱に移動します。ゴミ箱からいつでも復元・完全削除できます。",
+    okLabel: "削除する",
+    onConfirm: () => moveCardToTrash(columnId, cardId),
+  });
+});
 
 // Formats a byte count as a whole-number MB string (no decimal place) —
 // used for the "remaining capacity" figure, where sub-MB precision isn't
@@ -2963,6 +3362,71 @@ function renderMembers(members) {
   });
 }
 
+// Persists an edited/deleted comment back onto the card currently open in
+// the modal, then re-renders the comment list. Shared by the edit-save and
+// delete flows below.
+function mutateActiveCardComments(mutator) {
+  if (!activeCardRef) return;
+  const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+  if (!found) return;
+  found.card.comments = found.card.comments || [];
+  mutator(found.card.comments);
+  saveProject(found.project);
+  renderComments(found.card.comments);
+}
+
+function isCommentAuthor(comment) {
+  return !!(currentUser && comment.authorUid && comment.authorUid === currentUser.uid);
+}
+
+// Swaps a comment's text display for an inline textarea + save/cancel row.
+// `item` is the .comment-item element already in the DOM for this comment.
+function startEditingComment(item, comment) {
+  const textEl = item.querySelector(".comment-text");
+  if (!textEl) return;
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "comment-edit-textarea";
+  textarea.rows = 3;
+  textarea.value = comment.text || "";
+
+  const actionsRow = document.createElement("div");
+  actionsRow.className = "comment-edit-actions";
+
+  const saveBtn = document.createElement("button");
+  saveBtn.type = "button";
+  saveBtn.className = "confirm-add";
+  saveBtn.textContent = "保存";
+  saveBtn.addEventListener("click", () => {
+    const newText = textarea.value.trim();
+    if (!newText) return;
+    mutateActiveCardComments((comments) => {
+      const target = comments.find((x) => x.id === comment.id);
+      if (target) {
+        target.text = newText;
+        target.editedAt = new Date().toISOString();
+      }
+    });
+  });
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "cancel-add";
+  cancelBtn.textContent = "キャンセル";
+  cancelBtn.addEventListener("click", () => {
+    if (!activeCardRef) return;
+    const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+    if (found) renderComments(found.card.comments || []);
+  });
+
+  actionsRow.appendChild(saveBtn);
+  actionsRow.appendChild(cancelBtn);
+
+  textEl.replaceWith(textarea);
+  textarea.after(actionsRow);
+  textarea.focus();
+}
+
 function renderComments(comments) {
   modalCommentsEl.innerHTML = "";
   comments.forEach((c) => {
@@ -2971,15 +3435,64 @@ function renderComments(comments) {
 
     const meta = document.createElement("div");
     meta.className = "comment-meta";
-    const date = new Date(c.createdAt);
-    meta.textContent = `${c.author} ・ ${date.toLocaleString("ja-JP")}`;
 
-    const text = document.createElement("div");
-    text.className = "comment-text";
-    text.textContent = c.text;
+    const authorSpan = document.createElement("span");
+    authorSpan.className = "comment-meta-author";
+    const date = new Date(c.createdAt);
+    authorSpan.textContent =
+      `${c.author} ・ ${date.toLocaleString("ja-JP")}` + (c.editedAt ? " " : "");
+    if (c.editedAt) {
+      const editedTag = document.createElement("span");
+      editedTag.className = "comment-meta-edited";
+      editedTag.textContent = "(編集済み)";
+      authorSpan.appendChild(editedTag);
+    }
+    meta.appendChild(authorSpan);
+
+    const textEl = document.createElement("div");
+    textEl.className = "comment-text";
+    textEl.textContent = c.text;
+
+    // Only the person who posted a comment may edit or delete it.
+    if (isCommentAuthor(c)) {
+      const actions = document.createElement("div");
+      actions.className = "comment-actions";
+
+      if (c.text) {
+        const editBtn = document.createElement("button");
+        editBtn.type = "button";
+        editBtn.className = "comment-action-btn";
+        editBtn.title = "編集";
+        editBtn.textContent = "✏️";
+        editBtn.addEventListener("click", () => startEditingComment(item, c));
+        actions.appendChild(editBtn);
+      }
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.className = "comment-action-btn danger";
+      deleteBtn.title = "削除";
+      deleteBtn.textContent = "🗑️";
+      deleteBtn.addEventListener("click", () => {
+        openConfirmModal({
+          title: "コメントを削除しますか？",
+          message: "この操作は取り消せません。",
+          okLabel: "削除する",
+          onConfirm: () => {
+            mutateActiveCardComments((comments) => {
+              const idx = comments.findIndex((x) => x.id === c.id);
+              if (idx !== -1) comments.splice(idx, 1);
+            });
+          },
+        });
+      });
+      actions.appendChild(deleteBtn);
+
+      meta.appendChild(actions);
+    }
 
     item.appendChild(meta);
-    if (c.text) item.appendChild(text);
+    if (c.text) item.appendChild(textEl);
 
     if (c.attachment) {
       const attWrap = document.createElement("div");
@@ -3048,9 +3561,10 @@ modalMemberInput.addEventListener("keydown", (e) => {
   modalMemberInput.value = "";
 });
 
-modalCommentInput.addEventListener("keydown", async (e) => {
-  if (e.key !== "Enter") return;
-  e.preventDefault();
+// Comments are posted by clicking the "送信" button (not by pressing Enter
+// in the input) so a stray Enter keystroke while typing doesn't accidentally
+// submit an unfinished comment.
+async function submitComment() {
   if (!activeCardRef) return;
   const text = modalCommentInput.value.trim();
   if (!text && !pendingCommentFile) return;
@@ -3062,6 +3576,7 @@ modalCommentInput.addEventListener("keydown", async (e) => {
 
   modalCommentInput.value = "";
   modalCommentInput.disabled = true;
+  modalCommentSendBtn.disabled = true;
 
   let attachment = null;
   if (fileToUpload) {
@@ -3072,6 +3587,7 @@ modalCommentInput.addEventListener("keydown", async (e) => {
       console.error("upload failed", err);
       alert("ファイルのアップロードに失敗しました: " + err.message);
       modalCommentInput.disabled = false;
+      modalCommentSendBtn.disabled = false;
       pendingCommentFile = fileToUpload;
       renderPendingFile();
       return;
@@ -3081,6 +3597,7 @@ modalCommentInput.addEventListener("keydown", async (e) => {
   pendingCommentFile = null;
   renderPendingFile();
   modalCommentInput.disabled = false;
+  modalCommentSendBtn.disabled = false;
 
   const found = findCard(targetColumnId, targetCardId);
   if (!found) return;
@@ -3089,6 +3606,7 @@ modalCommentInput.addEventListener("keydown", async (e) => {
     id: uid(),
     author:
       (userProfile && userProfile.displayName) || currentUser.displayName || currentUser.email || "匿名",
+    authorUid: currentUser.uid,
     text,
     createdAt: new Date().toISOString(),
   };
@@ -3098,7 +3616,9 @@ modalCommentInput.addEventListener("keydown", async (e) => {
   if (activeCardRef && activeCardRef.cardId === targetCardId) {
     renderComments(found.card.comments);
   }
-});
+}
+
+modalCommentSendBtn.addEventListener("click", submitComment);
 
 function syncModalIfOpen() {
   if (!activeCardRef) return;
