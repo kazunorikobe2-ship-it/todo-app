@@ -116,7 +116,7 @@ const PLAN_LIMITS = {
     label: "Business",
     maxProjects: Infinity,
     views: ["board", "table", "calendar", "timeline", "dashboard"],
-    maxTotalMB: Infinity,
+    maxTotalMB: 300,
     publicShare: true,
   },
 };
