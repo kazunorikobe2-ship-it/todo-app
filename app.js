@@ -101,21 +101,23 @@ const PLAN_LIMITS = {
   free: {
     label: "Free",
     maxProjects: 10,
-    views: ["board", "table"],
+    // "comments" (unlike calendar/timeline/dashboard) is available on every
+    // plan, Free included.
+    views: ["board", "table", "comments"],
     maxTotalMB: 5,
     publicShare: false,
   },
   pro: {
     label: "Pro",
     maxProjects: Infinity,
-    views: ["board", "table", "calendar", "timeline", "dashboard"],
+    views: ["board", "table", "comments", "calendar", "timeline", "dashboard"],
     maxTotalMB: 150,
     publicShare: false,
   },
   business: {
     label: "Business",
     maxProjects: Infinity,
-    views: ["board", "table", "calendar", "timeline", "dashboard"],
+    views: ["board", "table", "comments", "calendar", "timeline", "dashboard"],
     maxTotalMB: 300,
     publicShare: true,
   },
@@ -746,6 +748,7 @@ function renderAll() {
 
   if (currentView === "board") renderBoard();
   else if (currentView === "table") renderTableView();
+  else if (currentView === "comments") renderCommentsView();
   else if (currentView === "calendar") renderCalendarView();
   else if (currentView === "timeline") renderTimelineView();
   else if (currentView === "dashboard") renderDashboardView();
@@ -2358,6 +2361,7 @@ const viewTabButtons = document.querySelectorAll(".view-tab");
 const viewPanels = {
   board: document.getElementById("board"),
   table: document.getElementById("table-view"),
+  comments: document.getElementById("comments-view"),
   calendar: document.getElementById("calendar-view"),
   timeline: document.getElementById("timeline-view"),
   dashboard: document.getElementById("dashboard-view"),
@@ -2386,6 +2390,7 @@ viewTabButtons.forEach((tab) => {
     }
     currentView = tab.dataset.view;
     localStorage.setItem(CURRENT_VIEW_KEY, currentView);
+    if (currentView === "comments") commentsViewPage = 1;
     renderAll();
   });
 });
@@ -3474,6 +3479,117 @@ function renderTimelineView() {
   });
   // Land on "today" by default rather than the far-left edge.
   scrollWrap.scrollLeft = Math.max(0, todayIndex * GANTT_DAY_WIDTH - scrollWrap.clientWidth / 2);
+}
+
+// ---------- comments view (all cards' comments, newest first, paginated) ----------
+// Available on every plan (unlike calendar/timeline/dashboard) — see
+// PLAN_LIMITS above.
+let commentsViewPage = 1;
+const COMMENTS_VIEW_PAGE_SIZE = 10;
+
+function renderCommentsView() {
+  const project = getActiveProject();
+  const panel = viewPanels.comments;
+  panel.innerHTML = "";
+  if (!project) return;
+
+  const items = [];
+  project.columns.forEach((column) => {
+    column.cards.forEach((card) => {
+      (card.comments || []).forEach((comment) => {
+        items.push({ comment, card, column });
+      });
+    });
+  });
+
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "table-empty";
+    empty.textContent = "コメントがまだありません";
+    panel.appendChild(empty);
+    return;
+  }
+
+  // Newest first.
+  items.sort((a, b) => (a.comment.createdAt < b.comment.createdAt ? 1 : a.comment.createdAt > b.comment.createdAt ? -1 : 0));
+
+  const totalPages = Math.max(1, Math.ceil(items.length / COMMENTS_VIEW_PAGE_SIZE));
+  commentsViewPage = Math.min(Math.max(commentsViewPage, 1), totalPages);
+
+  const startIdx = (commentsViewPage - 1) * COMMENTS_VIEW_PAGE_SIZE;
+  const pageItems = items.slice(startIdx, startIdx + COMMENTS_VIEW_PAGE_SIZE);
+
+  const list = document.createElement("div");
+  list.className = "comments-view-list";
+
+  pageItems.forEach(({ comment, card, column }) => {
+    const row = document.createElement("div");
+    row.className = "comments-view-row";
+
+    const meta = document.createElement("div");
+    meta.className = "comments-view-meta";
+
+    // Clicking the CARD TITLE (not the comment) opens that card's modal —
+    // the comment itself is plain, non-interactive text.
+    const cardLink = document.createElement("button");
+    cardLink.type = "button";
+    cardLink.className = "comments-view-card-link";
+    cardLink.textContent = card.text;
+    cardLink.title = column.title;
+    cardLink.addEventListener("click", () => openCardModal(column.id, card.id));
+    meta.appendChild(cardLink);
+
+    const dateEl = document.createElement("span");
+    dateEl.className = "comments-view-date";
+    const date = new Date(comment.createdAt);
+    dateEl.textContent = `${comment.author || "匿名"} ・ ${date.toLocaleString("ja-JP")}`;
+    meta.appendChild(dateEl);
+
+    row.appendChild(meta);
+
+    const textEl = document.createElement("div");
+    textEl.className = "comments-view-text";
+    textEl.textContent = comment.text;
+    row.appendChild(textEl);
+
+    list.appendChild(row);
+  });
+
+  panel.appendChild(list);
+
+  if (totalPages > 1) {
+    const pager = document.createElement("div");
+    pager.className = "comments-view-pager";
+
+    const prevBtn = document.createElement("button");
+    prevBtn.type = "button";
+    prevBtn.className = "link-btn small";
+    prevBtn.textContent = "← 前へ";
+    prevBtn.disabled = commentsViewPage <= 1;
+    prevBtn.addEventListener("click", () => {
+      commentsViewPage--;
+      renderCommentsView();
+    });
+    pager.appendChild(prevBtn);
+
+    const pageLabel = document.createElement("span");
+    pageLabel.className = "comments-view-page-label";
+    pageLabel.textContent = `${commentsViewPage} / ${totalPages}`;
+    pager.appendChild(pageLabel);
+
+    const nextBtn = document.createElement("button");
+    nextBtn.type = "button";
+    nextBtn.className = "link-btn small";
+    nextBtn.textContent = "次へ →";
+    nextBtn.disabled = commentsViewPage >= totalPages;
+    nextBtn.addEventListener("click", () => {
+      commentsViewPage++;
+      renderCommentsView();
+    });
+    pager.appendChild(nextBtn);
+
+    panel.appendChild(pager);
+  }
 }
 
 // ---------- dashboard view ----------
