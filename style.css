@@ -2611,6 +2611,14 @@ body {
   margin-top: 16px;
 }
 
+/* Override the global .link-btn.small's "margin: auto" — inside this flex
+   pager it would absorb all free space and shove the prev/next buttons to
+   the far edges, away from the page label. */
+.comments-view-pager .link-btn.small {
+  display: inline;
+  margin: 0;
+}
+
 .comments-view-page-label {
   font-size: 13px;
   color: rgba(255, 255, 255, 0.85);
