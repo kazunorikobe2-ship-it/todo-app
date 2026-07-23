@@ -2391,6 +2391,85 @@ function clearDragVisuals() {
   document.querySelectorAll(".column.drag-over").forEach((el) => el.classList.remove("drag-over"));
 }
 
+// ---------- column (list) reordering via drag handle ----------
+// Cards live nested inside each column object, so reordering `project.columns`
+// naturally carries a list's cards along with it — nothing extra needed there.
+let draggingColumnInfo = null;
+
+function getColumnDragAfterElement(container, x) {
+  const els = [...container.querySelectorAll(".column:not(.dragging-column)")];
+  return els.reduce(
+    (closest, child) => {
+      const box = child.getBoundingClientRect();
+      const offset = x - box.left - box.width / 2;
+      if (offset < 0 && offset > closest.offset) {
+        return { offset, element: child };
+      }
+      return closest;
+    },
+    { offset: Number.NEGATIVE_INFINITY, element: null }
+  ).element;
+}
+
+function ensureColumnDropPlaceholder(width) {
+  let placeholder = document.querySelector(".column-drop-placeholder");
+  if (!placeholder) {
+    placeholder = document.createElement("div");
+    placeholder.className = "column-drop-placeholder";
+  }
+  placeholder.style.width = (width || 260) + "px";
+  return placeholder;
+}
+
+function clearColumnDragVisuals() {
+  document.querySelectorAll(".column-drop-placeholder").forEach((el) => el.remove());
+}
+
+// Attached once to the persistent #board element (rather than inside
+// renderBoard(), which would otherwise stack up duplicate listeners on every
+// re-render since board.innerHTML="" only clears its children, not board
+// itself). Always reads the live project/columns at drop-time instead of
+// closing over a stale reference.
+board.addEventListener("dragover", (e) => {
+  if (!draggingColumnInfo) return;
+  e.preventDefault();
+  const placeholder = ensureColumnDropPlaceholder(draggingColumnInfo.width);
+  const afterElement = getColumnDragAfterElement(board, e.clientX);
+  if (afterElement == null) {
+    board.appendChild(placeholder);
+  } else {
+    board.insertBefore(placeholder, afterElement);
+  }
+});
+
+board.addEventListener("dragleave", (e) => {
+  if (!draggingColumnInfo) return;
+  if (board.contains(e.relatedTarget)) return;
+  clearColumnDragVisuals();
+});
+
+board.addEventListener("drop", (e) => {
+  if (!draggingColumnInfo) return;
+  const project = getActiveProject();
+  if (!project || !canEditProject(project)) return;
+  e.preventDefault();
+  const afterElement = getColumnDragAfterElement(board, e.clientX);
+  clearColumnDragVisuals();
+
+  const { columnId } = draggingColumnInfo;
+  const fromIndex = project.columns.findIndex((c) => c.id === columnId);
+  if (fromIndex === -1) return;
+  const [movedColumn] = project.columns.splice(fromIndex, 1);
+
+  let insertIndex = project.columns.length;
+  if (afterElement) {
+    const idx = project.columns.findIndex((c) => c.id === afterElement.dataset.columnId);
+    if (idx !== -1) insertIndex = idx;
+  }
+  project.columns.splice(insertIndex, 0, movedColumn);
+  saveProject(project);
+});
+
 function renderBoard() {
   const project = getActiveProject();
   board.innerHTML = "";
@@ -2405,6 +2484,33 @@ function renderBoard() {
     // header
     const header = document.createElement("div");
     header.className = "column-header";
+
+    if (editable) {
+      const dragHandle = document.createElement("span");
+      dragHandle.className = "column-drag-handle";
+      dragHandle.textContent = "⠿";
+      dragHandle.title = "ドラッグしてリストを並び替え";
+      dragHandle.draggable = true;
+      dragHandle.addEventListener("dragstart", (e) => {
+        e.stopPropagation();
+        columnEl.classList.add("dragging-column");
+        draggingColumnInfo = { columnId: column.id, width: columnEl.offsetWidth };
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", JSON.stringify({ columnId: column.id }));
+        try {
+          e.dataTransfer.setDragImage(columnEl, 20, 20);
+        } catch (err) {
+          // setDragImage can throw in some older browsers; the default drag
+          // image (just the handle) still works fine without it.
+        }
+      });
+      dragHandle.addEventListener("dragend", () => {
+        columnEl.classList.remove("dragging-column");
+        draggingColumnInfo = null;
+        clearColumnDragVisuals();
+      });
+      header.appendChild(dragHandle);
+    }
 
     const titleInput = document.createElement("input");
     titleInput.className = "column-title";

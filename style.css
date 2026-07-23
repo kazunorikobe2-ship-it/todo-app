@@ -1449,12 +1449,37 @@ body {
   outline: 2px dashed #5067c5;
 }
 
+.column.dragging-column {
+  opacity: 0.4;
+}
+
+.column-drop-placeholder {
+  border: 2px dashed #5067c5;
+  border-radius: 10px;
+  background: rgba(80, 103, 197, 0.08);
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
 .column-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 8px;
   padding: 4px 6px;
+}
+
+.column-drag-handle {
+  cursor: grab;
+  color: #6b778c;
+  font-size: 15px;
+  padding: 0 4px 0 0;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.column-drag-handle:hover {
+  color: #172b4d;
 }
 
 .column-title {
