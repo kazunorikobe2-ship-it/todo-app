@@ -505,6 +505,17 @@ body {
   font-size: 12px;
 }
 
+.custom-field-show-on-card {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #5e6c84;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 /* ---------- card modal: custom fields (per-card values) ---------- */
 
 .custom-fields-wrap {

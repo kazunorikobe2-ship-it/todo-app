@@ -1738,6 +1738,21 @@ function renderProjectSettingsModal() {
       row.appendChild(optionsInput);
     }
 
+    const showOnCardLabel = document.createElement("label");
+    showOnCardLabel.className = "custom-field-show-on-card";
+    const showOnCardCheckbox = document.createElement("input");
+    showOnCardCheckbox.type = "checkbox";
+    // Default to true for fields created before this option existed, so
+    // existing behavior doesn't silently change for them.
+    showOnCardCheckbox.checked = field.showOnCard !== false;
+    showOnCardCheckbox.addEventListener("change", () => {
+      field.showOnCard = showOnCardCheckbox.checked;
+      saveProject(project);
+    });
+    showOnCardLabel.appendChild(showOnCardCheckbox);
+    showOnCardLabel.appendChild(document.createTextNode("カードに表示"));
+    row.appendChild(showOnCardLabel);
+
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
     deleteBtn.className = "custom-field-delete-btn";
@@ -2659,6 +2674,7 @@ function renderBoard() {
         badges.appendChild(b);
       }
       (project.customFields || []).forEach((field) => {
+        if (field.showOnCard === false) return;
         const value = card.customFieldValues && card.customFieldValues[field.id];
         if (!value) return;
         const b = document.createElement("span");
