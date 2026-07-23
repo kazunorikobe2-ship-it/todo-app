@@ -12,7 +12,7 @@ body {
      screen). min-height keeps a usable floor of ~800px on very short
      windows, where the page falls back to its own scrollbar. */
   height: 100vh;
-  min-height: 800px;
+  min-height: 720px;
   color: #172b4d;
 }
 
