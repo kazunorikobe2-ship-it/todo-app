@@ -2401,10 +2401,34 @@ addColumnBtn.addEventListener("click", () => {
   saveProject(project);
 });
 
-// Tracks the card currently being dragged so dragover/drop handlers know
+// Tracks the card(s) currently being dragged so dragover/drop handlers know
 // what's moving without relying on dataTransfer.getData() (unreliable to
-// read during dragover in some browsers). Cleared on dragend.
+// read during dragover in some browsers). Cleared on dragend. `cardIds` is
+// always an array — length 1 for an ordinary single-card drag, length 2+
+// when dragging a multi-card range selection (see selectedCardIds below).
 let draggingCardInfo = null;
+
+// ---------- multi-card range selection (shift/ctrl+click) ----------
+// Lets the user select several cards within one list (shift+click extends a
+// range from the last anchor, ctrl/cmd+click toggles individual cards) and
+// then drag them all together in one go. Selection is local UI state only
+// (never persisted), and is scoped to a single column at a time since a
+// "range" only makes sense within one ordered list.
+let selectedCardIds = new Set();
+let selectionColumnId = null;
+let selectionAnchorId = null;
+
+function clearCardSelection(rerender) {
+  if (!selectedCardIds.size) return;
+  selectedCardIds = new Set();
+  selectionColumnId = null;
+  selectionAnchorId = null;
+  if (rerender) renderBoard();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") clearCardSelection(true);
+});
 
 // Returns the card element the dragged card should be inserted BEFORE,
 // based on vertical mouse position (compares against each card's vertical
@@ -2601,21 +2625,89 @@ function renderBoard() {
       cardEl.draggable = editable;
       cardEl.dataset.cardId = card.id;
 
+      if (selectionColumnId === column.id && selectedCardIds.has(card.id)) {
+        cardEl.classList.add("selected");
+      }
+
       cardEl.addEventListener("dragstart", (e) => {
-        cardEl.classList.add("dragging");
-        draggingCardInfo = { cardId: card.id, fromColumnId: column.id, height: cardEl.offsetHeight };
+        const isMultiDrag = selectionColumnId === column.id && selectedCardIds.size > 1 && selectedCardIds.has(card.id);
+
+        if (!isMultiDrag) {
+          // Starting a drag on a card outside the current selection (or with
+          // no multi-selection active) just drags that one card, same as
+          // before — dropping any stale selection so it doesn't linger.
+          clearCardSelection(false);
+        }
+
+        const orderedIds = isMultiDrag
+          ? column.cards.map((c) => c.id).filter((id) => selectedCardIds.has(id))
+          : [card.id];
+
+        let totalHeight = 0;
+        orderedIds.forEach((id) => {
+          const el = cardList.querySelector(`.card[data-card-id="${id}"]`);
+          if (el) {
+            el.classList.add("dragging");
+            totalHeight += el.offsetHeight;
+          }
+        });
+
+        draggingCardInfo = { cardIds: orderedIds, fromColumnId: column.id, height: totalHeight };
         e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData(
-          "text/plain",
-          JSON.stringify({ cardId: card.id, fromColumnId: column.id })
-        );
+        e.dataTransfer.setData("text/plain", JSON.stringify({ cardIds: orderedIds, fromColumnId: column.id }));
       });
       cardEl.addEventListener("dragend", () => {
-        cardEl.classList.remove("dragging");
+        document.querySelectorAll(".card.dragging").forEach((el) => el.classList.remove("dragging"));
         draggingCardInfo = null;
         clearDragVisuals();
+        clearCardSelection(true);
       });
-      cardEl.addEventListener("click", () => openCardModal(column.id, card.id));
+      cardEl.addEventListener("click", (e) => {
+        if (!editable) {
+          openCardModal(column.id, card.id);
+          return;
+        }
+        if (e.shiftKey) {
+          e.preventDefault();
+          if (selectionColumnId !== column.id || !selectionAnchorId) {
+            // No existing anchor in this column — start a fresh single-card
+            // selection anchored on the card just clicked.
+            selectionColumnId = column.id;
+            selectionAnchorId = card.id;
+            selectedCardIds = new Set([card.id]);
+          } else {
+            const ids = column.cards.map((c) => c.id);
+            const anchorIdx = ids.indexOf(selectionAnchorId);
+            const clickIdx = ids.indexOf(card.id);
+            if (anchorIdx !== -1 && clickIdx !== -1) {
+              const [start, end] = anchorIdx < clickIdx ? [anchorIdx, clickIdx] : [clickIdx, anchorIdx];
+              selectedCardIds = new Set(ids.slice(start, end + 1));
+            }
+          }
+          renderBoard();
+          return;
+        }
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          if (selectionColumnId !== column.id) {
+            selectedCardIds = new Set();
+            selectionColumnId = column.id;
+          }
+          if (selectedCardIds.has(card.id)) {
+            selectedCardIds.delete(card.id);
+          } else {
+            selectedCardIds.add(card.id);
+          }
+          selectionAnchorId = card.id;
+          if (!selectedCardIds.size) selectionColumnId = null;
+          renderBoard();
+          return;
+        }
+        // Plain click: clear any lingering multi-selection and open the
+        // card as usual.
+        clearCardSelection(false);
+        openCardModal(column.id, card.id);
+      });
 
       if (card.cover) {
         const coverEl = document.createElement("div");
@@ -2791,19 +2883,27 @@ function renderBoard() {
       const afterElement = getDragAfterElement(cardList, e.clientY);
       clearDragVisuals();
 
-      const { cardId, fromColumnId } = draggingCardInfo;
+      const { cardIds, fromColumnId } = draggingCardInfo;
       const fromColumn = project.columns.find((c) => c.id === fromColumnId);
       if (!fromColumn) return;
-      const cardIndex = fromColumn.cards.findIndex((c) => c.id === cardId);
-      if (cardIndex === -1) return;
-      const [movedCard] = fromColumn.cards.splice(cardIndex, 1);
+
+      // Pull every dragged card out of the source list together (cardIds is
+      // already in original relative order — see dragstart above), then drop
+      // them back in as one contiguous block at the target position. For an
+      // ordinary single-card drag this is exactly the old splice-one behavior.
+      const movedCards = [];
+      cardIds.forEach((id) => {
+        const idx = fromColumn.cards.findIndex((c) => c.id === id);
+        if (idx !== -1) movedCards.push(...fromColumn.cards.splice(idx, 1));
+      });
+      if (!movedCards.length) return;
 
       let insertIndex = column.cards.length;
       if (afterElement) {
         const idx = column.cards.findIndex((c) => c.id === afterElement.dataset.cardId);
         if (idx !== -1) insertIndex = idx;
       }
-      column.cards.splice(insertIndex, 0, movedCard);
+      column.cards.splice(insertIndex, 0, ...movedCards);
       saveProject(project);
     });
 

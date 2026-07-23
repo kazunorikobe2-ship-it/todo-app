@@ -1540,6 +1540,12 @@ body {
   opacity: 0.4;
 }
 
+.card.selected {
+  outline: 2px solid #5067c5;
+  outline-offset: -1px;
+  background: #eef1fc;
+}
+
 .card-drop-placeholder {
   border: 2px dashed #5067c5;
   border-radius: 6px;
