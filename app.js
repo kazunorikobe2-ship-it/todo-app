@@ -549,6 +549,14 @@ function getRole(project) {
 }
 
 function canEditProject(project) {
+  // The public share URL (?share=<projectId>) is meant to be strictly
+  // read-only for EVERYONE, including the project's own owner/editors —
+  // e.g. a Business-plan owner opening their own share link in the same
+  // logged-in browser should see the same read-only view a stranger in an
+  // incognito window would, not their normal edit rights. Without this
+  // check, getRole() below would still resolve them as "owner" via their
+  // persisted Firebase Auth session and hand back full edit access.
+  if (isPublicShareMode) return false;
   const role = getRole(project);
   return role === "owner" || role === "editor";
 }
