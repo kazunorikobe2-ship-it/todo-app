@@ -458,6 +458,39 @@ function applyPriorityBadgeStyle(el, priorityId, project) {
   el.style.color = color;
 }
 
+// ---------- custom field badges (board card front) ----------
+// A palette deliberately disjoint (in hue) from the fixed badge colors used
+// elsewhere on the card front (due date = blue, members = blue, comments =
+// grey, actual-time = green, plus whatever hex colors a project's priority
+// options happen to use) so a custom-field tag never blends in with those.
+const CUSTOM_FIELD_BADGE_COLORS = [
+  "#8e44ad", // purple
+  "#12766b", // teal
+  "#c2255c", // pink/magenta
+  "#b8860b", // dark goldenrod
+  "#3d5a80", // indigo/navy
+  "#a0522d", // sienna/brown
+  "#5f6caf", // slate blue
+  "#6b8f00", // olive
+];
+
+// One consistent color per custom field (not per value) — hashed from the
+// field's id so it stays stable across renders/reorders.
+function customFieldBadgeColor(fieldId) {
+  const str = fieldId || "?";
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return CUSTOM_FIELD_BADGE_COLORS[Math.abs(hash) % CUSTOM_FIELD_BADGE_COLORS.length];
+}
+
+function applyCustomFieldBadgeStyle(el, fieldId) {
+  const color = customFieldBadgeColor(fieldId);
+  el.style.background = hexToRgba(color, 0.18);
+  el.style.color = color;
+}
+
 // ---------- state & firestore ----------
 // Each project is its own Firestore document under `projects`, tagged with
 // ownerEmail / editors / viewers / memberEmails so security rules can scope
@@ -2625,6 +2658,16 @@ function renderBoard() {
         b.textContent = "⏱ " + formatMinutesJP(card.actualMinutes);
         badges.appendChild(b);
       }
+      (project.customFields || []).forEach((field) => {
+        const value = card.customFieldValues && card.customFieldValues[field.id];
+        if (!value) return;
+        const b = document.createElement("span");
+        b.className = "badge custom-field-badge";
+        applyCustomFieldBadgeStyle(b, field.id);
+        b.textContent = `${field.name}: ${value}`;
+        b.title = `${field.name}: ${value}`;
+        badges.appendChild(b);
+      });
       if (badges.children.length) cardEl.appendChild(badges);
 
       if (editable) {

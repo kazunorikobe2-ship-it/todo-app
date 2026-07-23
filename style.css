@@ -1691,6 +1691,13 @@ body {
   color: #444;
 }
 
+.custom-field-badge {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---------- attachment slideshow (dashboard image attachments) ---------- */
 
 .slideshow-overlay {
