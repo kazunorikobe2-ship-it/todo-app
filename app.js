@@ -2664,7 +2664,7 @@ function renderBoard() {
         const b = document.createElement("span");
         b.className = "badge custom-field-badge";
         applyCustomFieldBadgeStyle(b, field.id);
-        b.textContent = `${field.name}: ${value}`;
+        b.textContent = value;
         b.title = `${field.name}: ${value}`;
         badges.appendChild(b);
       });
