@@ -6,7 +6,13 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   background: linear-gradient(135deg, #0079bf 0%, #5067c5 100%);
-  min-height: 100vh;
+  /* Fit exactly to the viewport height rather than just guaranteeing a
+     minimum — this stops the whole page from growing taller than the
+     window (which used to push the sidebar's bottom / board columns off
+     screen). min-height keeps a usable floor of ~800px on very short
+     windows, where the page falls back to its own scrollbar. */
+  height: 100vh;
+  min-height: 800px;
   color: #172b4d;
 }
 
@@ -14,16 +20,22 @@ body {
 
 .app-shell {
   display: flex;
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   align-items: stretch;
 }
 
 .project-drawer {
   width: 220px;
   flex: 0 0 220px;
+  min-height: 0;
   background: rgba(0, 0, 0, 0.2);
   padding: 16px 12px;
-  overflow-y: auto;
+  /* The header and the plan-note/plan-status footer stay put; only
+     .project-list (flex: 1 below) scrolls internally when there are many
+     projects, so the plan status stays pinned at the bottom instead of
+     needing a scroll to reach it. */
+  overflow: hidden;
   transition: width 0.15s ease, padding 0.15s ease, flex-basis 0.15s ease;
   display: flex;
   flex-direction: column;
@@ -45,6 +57,7 @@ body {
   font-weight: 600;
   margin-bottom: 10px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .add-project-btn {
@@ -69,6 +82,8 @@ body {
   gap: 6px;
   white-space: nowrap;
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .project-item {
@@ -157,6 +172,7 @@ body {
   font-size: 11px;
   line-height: 1.5;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .plan-note:hover {
@@ -176,6 +192,7 @@ body {
   padding: 10px 8px 4px;
   border-top: 1px solid rgba(255, 255, 255, 0.15);
   white-space: normal;
+  flex-shrink: 0;
 }
 
 .drawer-plan-row {
@@ -221,6 +238,7 @@ body {
   font-weight: 600;
   text-align: center;
   padding: 8px 12px;
+  flex-shrink: 0;
 }
 
 .public-share-banner a {
@@ -238,6 +256,7 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .storage-alert-banner .link-btn.small {
@@ -651,6 +670,8 @@ body {
 .main-area {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -677,6 +698,7 @@ body {
   justify-content: space-between;
   padding: 16px 24px;
   background: rgba(0, 0, 0, 0.15);
+  flex-shrink: 0;
 }
 
 .app-header-title {
@@ -721,6 +743,7 @@ body {
   gap: 6px;
   padding: 10px 24px;
   background: rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
 }
 
 .view-tab {
@@ -750,6 +773,15 @@ body {
 
 .view-tab.locked::after {
   content: " 🔒";
+}
+
+/* Whichever panel (board/table/calendar/timeline/dashboard) is currently
+   visible fills the remaining height under the header/banners/tabs and
+   scrolls internally, instead of the whole page growing/scrolling. */
+.view-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .view-panel.hidden {
@@ -1453,7 +1485,11 @@ body {
   padding: 10px;
   display: flex;
   flex-direction: column;
-  max-height: calc(100vh - 100px);
+  /* Was calc(100vh - 100px) — a hardcoded guess that broke whenever the
+     storage/public-share banners added extra height above the board.
+     100% of .board's own (now definite, flex-computed) height always
+     matches the actually available space. */
+  max-height: 100%;
 }
 
 .column.drag-over {
