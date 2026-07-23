@@ -277,10 +277,14 @@
       <button id="public-share-close-btn" class="modal-close-x">✕</button>
       <h2>🔗 公開共有(Businessプラン)</h2>
       <p class="modal-sub">リンクを知っている人は誰でも(ログインしていなくても)このプロジェクトを閲覧専用で見られるようにします。</p>
-      <label class="public-share-toggle-row">
+      <label id="public-share-toggle-row" class="public-share-toggle-row">
         <input type="checkbox" id="public-share-toggle" />
         リンクを知っている人は誰でも閲覧できるようにする
       </label>
+      <p id="public-share-upgrade-note" class="field-hint public-share-upgrade-note hidden">
+        この機能はBusinessプランでご利用いただけます。
+        <button id="public-share-upgrade-link" class="link-btn small" type="button">プランを見る</button>
+      </p>
       <div id="public-share-link-row" class="public-share-link-row hidden">
         <input type="text" id="public-share-url" readonly />
         <button id="public-share-copy-btn" class="link-btn small">コピー</button>

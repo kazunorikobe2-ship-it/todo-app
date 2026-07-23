@@ -358,6 +358,24 @@ body {
   margin-top: 4px;
 }
 
+.public-share-toggle-row.disabled {
+  color: #a5adba;
+  cursor: not-allowed;
+}
+
+.public-share-upgrade-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.public-share-upgrade-note .link-btn.small {
+  display: inline;
+  margin: 0;
+}
+
 .public-share-link-row {
   display: flex;
   gap: 6px;

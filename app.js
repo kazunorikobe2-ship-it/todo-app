@@ -1383,7 +1383,10 @@ const inviteSubmitBtn = document.getElementById("invite-submit-btn");
 const publicShareBtn = document.getElementById("public-share-btn");
 const publicShareModal = document.getElementById("public-share-modal");
 const publicShareCloseBtn = document.getElementById("public-share-close-btn");
+const publicShareToggleRow = document.getElementById("public-share-toggle-row");
 const publicShareToggle = document.getElementById("public-share-toggle");
+const publicShareUpgradeNote = document.getElementById("public-share-upgrade-note");
+const publicShareUpgradeLink = document.getElementById("public-share-upgrade-link");
 const publicShareLinkRow = document.getElementById("public-share-link-row");
 const publicShareUrlInput = document.getElementById("public-share-url");
 const publicShareCopyBtn = document.getElementById("public-share-copy-btn");
@@ -1515,13 +1518,12 @@ function renderMembersModal() {
 }
 
 // ---------- public share modal (header 🔗 icon, Business-plan only) ----------
+// Free/Pro owners can still open this modal (so they can see what the
+// feature is and how to unlock it), but the checkbox itself is disabled and
+// greyed out for them rather than swapping in the plans-comparison modal.
 function openPublicShareModal() {
   const project = getActiveProject();
   if (!project || !isOwnerOfProject(project)) return;
-  if (effectivePlanForProject(project) !== "business") {
-    openPlansModal();
-    return;
-  }
   renderPublicShareModal();
   publicShareModal.classList.remove("hidden");
 }
@@ -1529,7 +1531,12 @@ function openPublicShareModal() {
 function renderPublicShareModal() {
   const project = getActiveProject();
   if (!project) return;
+  const isBusiness = effectivePlanForProject(project) === "business";
+
   publicShareToggle.checked = !!project.publicShareEnabled;
+  publicShareToggle.disabled = !isBusiness;
+  publicShareToggleRow.classList.toggle("disabled", !isBusiness);
+  publicShareUpgradeNote.classList.toggle("hidden", isBusiness);
   publicShareLinkRow.classList.toggle("hidden", !project.publicShareEnabled);
   if (project.publicShareEnabled) {
     publicShareUrlInput.value = buildShareUrl(project.id);
@@ -1540,6 +1547,11 @@ publicShareBtn.addEventListener("click", openPublicShareModal);
 publicShareCloseBtn.addEventListener("click", () => publicShareModal.classList.add("hidden"));
 publicShareModal.addEventListener("click", (e) => {
   if (e.target === publicShareModal) publicShareModal.classList.add("hidden");
+});
+
+publicShareUpgradeLink.addEventListener("click", () => {
+  publicShareModal.classList.add("hidden");
+  openPlansModal();
 });
 
 publicShareToggle.addEventListener("change", () => {
