@@ -3677,6 +3677,7 @@ const modalTitleInput = document.getElementById("modal-title");
 const modalCloseBtn = document.getElementById("modal-close-btn");
 const modalDuplicateBtn = document.getElementById("modal-duplicate-btn");
 const modalDeleteBtn = document.getElementById("modal-delete-btn");
+const modalMoveListSelect = document.getElementById("modal-move-list-select");
 const modalStartDate = document.getElementById("modal-start-date");
 const modalDueDate = document.getElementById("modal-due-date");
 const modalPriority = document.getElementById("modal-priority");
@@ -3742,6 +3743,7 @@ function applyModalEditability(editable) {
   modalTitleInput.disabled = !editable;
   modalDuplicateBtn.classList.toggle("hidden", !editable);
   modalDeleteBtn.classList.toggle("hidden", !editable);
+  modalMoveListSelect.disabled = !editable;
   modalStartDate.disabled = !editable;
   modalDueDate.disabled = !editable;
   modalPriority.disabled = !editable;
@@ -3960,12 +3962,27 @@ function renderModalCustomFields(project, card) {
   });
 }
 
+// Rebuilds the "別のリストへ移動" <select> from the active project's current
+// list of columns every time the modal opens, selecting whichever column the
+// card is presently in.
+function renderModalMoveListSelect(project, currentColumnId) {
+  modalMoveListSelect.innerHTML = "";
+  ((project && project.columns) || []).forEach((column) => {
+    const optionEl = document.createElement("option");
+    optionEl.value = column.id;
+    optionEl.textContent = column.title;
+    modalMoveListSelect.appendChild(optionEl);
+  });
+  modalMoveListSelect.value = currentColumnId || "";
+}
+
 function populateModal(card, project) {
   project = project || getActiveProject();
   modalTitleInput.value = card.text;
   modalStartDate.value = card.startDate || "";
   modalDueDate.value = card.dueDate || "";
   modalActualTimeEl.textContent = card.actualMinutes ? formatMinutesJP(card.actualMinutes) : "記録なし";
+  renderModalMoveListSelect(project, activeCardRef ? activeCardRef.columnId : "");
   renderModalPriorityOptions(project, card.priority || "");
   renderModalCustomFields(project, card);
   modalNotes.innerHTML = card.notes || "";
@@ -4019,6 +4036,28 @@ function duplicateCard() {
 }
 
 modalDuplicateBtn.addEventListener("click", duplicateCard);
+
+// Moves the currently-open card into whichever list the user picks from the
+// dropdown — the same underlying move as dragging the card on the board,
+// just reachable from inside the modal too.
+modalMoveListSelect.addEventListener("change", () => {
+  if (!activeCardRef) return;
+  const found = findCard(activeCardRef.columnId, activeCardRef.cardId);
+  if (!found || !canEditProject(found.project)) return;
+
+  const targetColumnId = modalMoveListSelect.value;
+  if (targetColumnId === found.column.id) return;
+  const targetColumn = found.project.columns.find((c) => c.id === targetColumnId);
+  if (!targetColumn) return;
+
+  const idx = found.column.cards.findIndex((c) => c.id === found.card.id);
+  if (idx === -1) return;
+  const [movedCard] = found.column.cards.splice(idx, 1);
+  targetColumn.cards.push(movedCard);
+
+  activeCardRef = { columnId: targetColumn.id, cardId: movedCard.id };
+  saveProject(found.project);
+});
 
 modalDeleteBtn.addEventListener("click", () => {
   if (!activeCardRef) return;

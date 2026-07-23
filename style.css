@@ -2010,6 +2010,18 @@ body {
   background: #fff0ee;
 }
 
+.modal-move-list-select {
+  margin-left: auto;
+  border: 1px solid #dcdfe4;
+  background: #fff;
+  color: #42526e;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 160px;
+}
+
 .modal-title-input {
   flex: 1;
   font-size: 18px;
