@@ -66,7 +66,6 @@
 
       <main id="board" class="board view-panel"></main>
       <div id="table-view" class="view-panel hidden"></div>
-      <div id="comments-view" class="view-panel hidden"></div>
       <div id="calendar-view" class="view-panel hidden"></div>
       <div id="timeline-view" class="view-panel hidden"></div>
       <div id="dashboard-view" class="view-panel hidden"></div>
@@ -440,6 +439,18 @@
     <button id="slideshow-next-btn" class="slideshow-nav-btn slideshow-next-btn" title="次へ">›</button>
     <div id="slideshow-caption" class="slideshow-caption"></div>
   </div>
+
+  <!-- Comments drawer: a Notion-style side peek panel. Clicking the
+       "コメント" tab slides this in from the right WITHOUT switching away
+       from whichever board/table/calendar/etc. view is currently showing. -->
+  <div id="comments-drawer-backdrop" class="comments-drawer-backdrop"></div>
+  <aside id="comments-drawer" class="comments-drawer">
+    <div class="comments-drawer-header">
+      <h3>コメント</h3>
+      <button id="comments-drawer-close-btn" class="comments-drawer-close-btn" type="button" title="閉じる">✕</button>
+    </div>
+    <div id="comments-view" class="comments-drawer-body"></div>
+  </aside>
 
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>

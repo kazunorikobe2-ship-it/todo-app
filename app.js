@@ -101,23 +101,21 @@ const PLAN_LIMITS = {
   free: {
     label: "Free",
     maxProjects: 10,
-    // "comments" (unlike calendar/timeline/dashboard) is available on every
-    // plan, Free included.
-    views: ["board", "table", "comments"],
+    views: ["board", "table"],
     maxTotalMB: 5,
     publicShare: false,
   },
   pro: {
     label: "Pro",
     maxProjects: Infinity,
-    views: ["board", "table", "comments", "calendar", "timeline", "dashboard"],
+    views: ["board", "table", "calendar", "timeline", "dashboard"],
     maxTotalMB: 150,
     publicShare: false,
   },
   business: {
     label: "Business",
     maxProjects: Infinity,
-    views: ["board", "table", "comments", "calendar", "timeline", "dashboard"],
+    views: ["board", "table", "calendar", "timeline", "dashboard"],
     maxTotalMB: 300,
     publicShare: true,
   },
@@ -748,10 +746,13 @@ function renderAll() {
 
   if (currentView === "board") renderBoard();
   else if (currentView === "table") renderTableView();
-  else if (currentView === "comments") renderCommentsView();
   else if (currentView === "calendar") renderCalendarView();
   else if (currentView === "timeline") renderTimelineView();
   else if (currentView === "dashboard") renderDashboardView();
+
+  // The comments drawer floats above whichever view is active above, so it
+  // is refreshed independently rather than through the view dispatch.
+  if (commentsDrawerOpen) renderCommentsView();
 }
 
 // ---------- Google authentication ----------
@@ -2361,7 +2362,6 @@ const viewTabButtons = document.querySelectorAll(".view-tab");
 const viewPanels = {
   board: document.getElementById("board"),
   table: document.getElementById("table-view"),
-  comments: document.getElementById("comments-view"),
   calendar: document.getElementById("calendar-view"),
   timeline: document.getElementById("timeline-view"),
   dashboard: document.getElementById("dashboard-view"),
@@ -2371,6 +2371,14 @@ function applyViewState() {
   const project = getActiveProject();
   const planViews = planLimitsFor(effectivePlanForProject(project)).views;
   viewTabButtons.forEach((tab) => {
+    // The "コメント" tab no longer switches the main view — it toggles the
+    // comments drawer instead (see below), and is available on every plan,
+    // so it's excluded from the plan-gating / active-view logic here.
+    if (tab.dataset.view === "comments") {
+      tab.classList.remove("locked");
+      tab.classList.toggle("active", commentsDrawerOpen);
+      return;
+    }
     const allowed = planViews.includes(tab.dataset.view);
     tab.classList.toggle("active", tab.dataset.view === currentView && allowed);
     tab.classList.toggle("locked", !allowed);
@@ -2382,6 +2390,10 @@ function applyViewState() {
 
 viewTabButtons.forEach((tab) => {
   tab.addEventListener("click", () => {
+    if (tab.dataset.view === "comments") {
+      toggleCommentsDrawer();
+      return;
+    }
     const project = getActiveProject();
     const planViews = planLimitsFor(effectivePlanForProject(project)).views;
     if (!planViews.includes(tab.dataset.view)) {
@@ -2390,7 +2402,6 @@ viewTabButtons.forEach((tab) => {
     }
     currentView = tab.dataset.view;
     localStorage.setItem(CURRENT_VIEW_KEY, currentView);
-    if (currentView === "comments") commentsViewPage = 1;
     renderAll();
   });
 });
@@ -3481,15 +3492,53 @@ function renderTimelineView() {
   scrollWrap.scrollLeft = Math.max(0, todayIndex * GANTT_DAY_WIDTH - scrollWrap.clientWidth / 2);
 }
 
-// ---------- comments view (all cards' comments, newest first, paginated) ----------
-// Available on every plan (unlike calendar/timeline/dashboard) — see
-// PLAN_LIMITS above.
+// ---------- comments drawer (all cards' comments, newest first, paginated) ----------
+// A Notion-style side peek panel: available on every plan (unlike
+// calendar/timeline/dashboard — see PLAN_LIMITS above), and slides in from
+// the right WITHOUT switching away from whatever view (board/table/etc.)
+// is currently showing.
 let commentsViewPage = 1;
 const COMMENTS_VIEW_PAGE_SIZE = 10;
+let commentsDrawerOpen = false;
+const commentsDrawerEl = document.getElementById("comments-drawer");
+const commentsDrawerBackdrop = document.getElementById("comments-drawer-backdrop");
+const commentsDrawerCloseBtn = document.getElementById("comments-drawer-close-btn");
+
+function openCommentsDrawer() {
+  commentsDrawerOpen = true;
+  commentsViewPage = 1;
+  commentsDrawerEl.classList.add("open");
+  commentsDrawerBackdrop.classList.add("open");
+  // Let the tab reflect the open state, then paint the drawer's contents.
+  viewTabButtons.forEach((tab) => {
+    if (tab.dataset.view === "comments") tab.classList.add("active");
+  });
+  renderCommentsView();
+}
+
+function closeCommentsDrawer() {
+  commentsDrawerOpen = false;
+  commentsDrawerEl.classList.remove("open");
+  commentsDrawerBackdrop.classList.remove("open");
+  viewTabButtons.forEach((tab) => {
+    if (tab.dataset.view === "comments") tab.classList.remove("active");
+  });
+}
+
+function toggleCommentsDrawer() {
+  if (commentsDrawerOpen) closeCommentsDrawer();
+  else openCommentsDrawer();
+}
+
+commentsDrawerCloseBtn.addEventListener("click", closeCommentsDrawer);
+commentsDrawerBackdrop.addEventListener("click", closeCommentsDrawer);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && commentsDrawerOpen) closeCommentsDrawer();
+});
 
 function renderCommentsView() {
   const project = getActiveProject();
-  const panel = viewPanels.comments;
+  const panel = document.getElementById("comments-view");
   panel.innerHTML = "";
   if (!project) return;
 
