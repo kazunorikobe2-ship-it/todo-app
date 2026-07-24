@@ -297,6 +297,7 @@ body {
   border: solid 1px #ddd;
   border-radius: 5px;
   padding: 10px 14px;
+  background: #f0f0f0;
 }
 
 .member-group-label {
@@ -314,10 +315,10 @@ body {
 .member-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  background: #f4f5f7;
+  gap: 6px;
+  background: #fff;
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: 8px 16px;
   font-size: 13px;
 }
 
@@ -372,7 +373,7 @@ body {
 .public-share-toggle-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   font-size: 13px;
   color: #172b4d;
   cursor: pointer;
@@ -412,6 +413,10 @@ body {
   min-width: 0;
   color: #5e6c84;
   background: #f4f5f7;
+}
+
+input#public-share-toggle {
+    margin: 0;
 }
 
 /* ---------- project settings modal (priority options + custom fields) ---------- */
@@ -1016,6 +1021,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  background: #f0f0f0;
+  border-radius: 5px;
 }
 
 .trash-item {
@@ -1869,6 +1876,9 @@ button#profile-save-btn {
 
 .modal-content.small {
   width: 400px;
+}
+.modal-content.small.members-content {
+    padding-top: 12px;
 }
 
 /* ---------- card modal: 2-column layout (PC) ---------- */
